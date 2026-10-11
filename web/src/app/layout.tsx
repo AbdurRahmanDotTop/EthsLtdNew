@@ -24,9 +24,14 @@ export const metadata: Metadata = {
   title: "ETHSLTD Crypto - Trade Crypto With Clarity",
   description: "The modern digital asset platform. Trade crypto with clarity and confidence.",
   icons: {
-    icon: "/media/usedMedia/FaveIconLogoDarkBg.png",
-    shortcut: "/media/usedMedia/FaveIconLogoDarkBg.png",
-    apple: "/media/usedMedia/logo-circle.png",
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/icon.png", type: "image/png", sizes: "330x330" },
+    ],
+    shortcut: "/favicon.ico",
+    apple: [
+      { url: "/apple-icon.png", sizes: "330x330", type: "image/png" },
+    ],
   },
 };
 
