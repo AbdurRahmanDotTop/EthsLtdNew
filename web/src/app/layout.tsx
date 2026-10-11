@@ -24,14 +24,9 @@ export const metadata: Metadata = {
   title: "ETHSLTD Crypto - Trade Crypto With Clarity",
   description: "The modern digital asset platform. Trade crypto with clarity and confidence.",
   icons: {
-    icon: [
-      { url: "/favicon.ico", sizes: "any" },
-      { url: "/icon.png", type: "image/png", sizes: "330x330" },
-    ],
-    shortcut: "/favicon.ico",
-    apple: [
-      { url: "/apple-icon.png", sizes: "330x330", type: "image/png" },
-    ],
+    icon: "/media/usedMedia/logo-circle.png",
+    shortcut: "/media/usedMedia/logo-circle.png",
+    apple: "/media/usedMedia/logo-circle.png",
   },
 };
 
@@ -51,11 +46,11 @@ export default function RootLayout({
           {children}
         </main>
         <BottomNavigation />
-        <Toaster 
-          richColors 
-          position="top-right" 
-          theme="dark" 
-          closeButton 
+        <Toaster
+          richColors
+          position="top-right"
+          theme="dark"
+          closeButton
           toastOptions={{
             closeButton: true,
             classNames: {
