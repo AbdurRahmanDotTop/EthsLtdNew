@@ -1,0 +1,490 @@
+generator client {
+  provider        = "prisma-client-js"
+  output          = "../node_modules/.prisma/client"
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model User {
+  id             String    @id @default(cuid())
+  uid            Int       @unique // For the 6-digit UID in screenshots
+  email          String    @unique
+  name           String?
+  avatarUrl      String?
+  phone          String?
+  passwordHash   String
+  transactionPin String?
+  role           String    @default("USER") // USER, ADMIN, SUPER_ADMIN
+  status         String    @default("ACTIVE") // ACTIVE, FROZEN, BANNED
+  isKycVerified  Boolean   @default(false)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  wallets        Wallet[]
+  orders         Order[]
+  transactions   Transaction[]
+  bankCards      BankCard[]
+  cryptoWallets  UserCryptoWallet[]
+  kyc            KycApplication?
+  deposits       DepositRequest[]
+  withdrawals    WithdrawalRequest[]
+  auditLogs      AuditLog[]
+
+  // Relationship Manager (RM) Relations
+  rmProfile            RmProfile?
+  rmClientConnections  RmConnection[]       @relation("UserConnections")
+  rmManagedConnections RmConnection[]       @relation("RmConnections")
+  contractsAsUser      InvestmentContract[] @relation("UserContracts")
+  contractsAsRm        InvestmentContract[] @relation("RmContracts")
+  sentRmMessages       RmMessage[]          @relation("SenderMessages")
+  rmNotifications      RmNotification[]
+  conversationsAsUser  RmConversation[]     @relation("ConversationUsers")
+  conversationsAsRm    RmConversation[]     @relation("ConversationRms")
+}
+
+model Wallet {
+  id        String   @id @default(cuid())
+  userId    String
+  asset     String   // USDT, BTC, ETH, ACH, USDC
+  balance   Float    @default(0.0)
+  type      String   @default("Currency") // Currency, Contract, Options
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@unique([userId, asset, type])
+}
+
+model BankCard {
+  id            String   @id @default(cuid())
+  userId        String
+  bankName      String
+  accountHolder String   @default("")
+  accountNumber String   @default("")
+  iban          String?
+  bankAddress   String?
+  swiftCode     String?
+  ifscCode      String?
+  branchName    String?
+  country       String?  @default("India")
+  fullName      String   @default("")
+  isPrimary     Boolean  @default(false)
+  status        String   @default("ACTIVE") // ACTIVE, INACTIVE
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @default(now()) @updatedAt
+  
+  user          User     @relation(fields: [userId], references: [id])
+}
+
+model UserCryptoWallet {
+  id        String   @id @default(cuid())
+  userId    String
+  asset     String   @default("USDT") // USDT, BTC, ETH, ACH, USDC
+  network   String   // TRC20, ERC20, BEP20, BTC, SOL
+  address   String
+  label     String   // e.g. "My Binance TRC20", "Ledger Cold Storage"
+  memo      String?  // Optional memo/tag
+  isPrimary Boolean  @default(false)
+  status    String   @default("ACTIVE") // ACTIVE, INACTIVE
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+model Order {
+  id           String   @id @default(cuid())
+  userId       String
+  symbol       String
+  category     String   @default("Perpetual") // Perpetual, Option
+  type         String   // Buy Long, Buy Short, Rise, Fall
+  amount       Float    // Quantity for Perpetual, Investment for Option
+  price        Float    // Entry Price
+  leverage     Float?   // For Perpetual
+  margin       Float?   // Held margin
+  duration     Int?     // For Option (seconds)
+  payout       Float?   // Expected payout multiplier (e.g. 1.8)
+  closePrice   Float?   // Price when closed/expired
+  realizedPnl  Float?   // Final PNL
+  status       String   // Executed, Closed, Awaiting, Win, Loss
+  stopProfit    Float?
+  stopLoss      Float?
+  clientOrderId String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  user          User     @relation(fields: [userId], references: [id])
+
+  @@index([userId, clientOrderId])
+}
+
+model Transaction {
+  id          String   @id @default(cuid())
+  userId      String
+  type        String   // Deposit, Withdraw, Transfer, Margin Hold, Position Closed, Admin Adjustment
+  asset       String
+  amount      Float
+  fee         Float    @default(0.0)
+  status      String   // Processing, Passed, Failed
+  description String?
+  createdAt   DateTime @default(now())
+  
+  user        User     @relation(fields: [userId], references: [id])
+}
+
+model KycApplication {
+  id              String    @id @default(cuid())
+  userId          String    @unique
+  idNumber        String
+  address         String
+  idFrontUrl      String?
+  idBackUrl       String?
+  status          String    @default("PENDING") // PENDING, APPROVED, REJECTED
+  rejectionReason String?
+  reviewedBy      String?
+  reviewedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  user            User      @relation(fields: [userId], references: [id])
+}
+
+model DepositRequest {
+  id              String    @id @default(cuid())
+  userId          String
+  amount          Float
+  asset           String    @default("USDT")
+  method          String    @default("BANK") // BANK, CRYPTO
+  bankName        String?
+  referenceNumber String
+  proofUrl        String?
+  status          String    @default("PENDING") // PENDING, APPROVED, REJECTED
+  rejectionReason String?
+  reviewedBy      String?
+  reviewedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  user            User      @relation(fields: [userId], references: [id])
+}
+
+model WithdrawalRequest {
+  id              String    @id @default(cuid())
+  userId          String
+  amount          Float
+  fee             Float     @default(0.0)
+  receiveAmount   Float
+  asset           String    @default("USDT")
+  method          String    @default("BANK") // BANK, CRYPTO
+
+  // Bank method details
+  bankName        String?
+  accountNumber   String?
+  accountHolder   String?
+  fullName        String?
+  ifscCode        String?
+  branchName      String?
+  country         String?
+
+  // Crypto method details
+  network         String?   // TRC20, ERC20, BEP20, BTC, SOL
+  walletAddress   String?
+  walletLabel     String?
+  memo            String?
+
+  // Immutable audit snapshot of selected method at request time
+  methodSnapshot  String?   // Complete JSON string of selected bank/crypto details
+
+  // Processing & administrative state
+  status          String    @default("PENDING") // PENDING, APPROVED, REJECTED
+  rejectionReason String?
+  txHash          String?   // Blockchain transaction hash or payout reference
+  adminNotes      String?
+  reviewedBy      String?
+  reviewedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @default(now()) @updatedAt
+
+  user            User      @relation(fields: [userId], references: [id])
+}
+
+model PaymentMethod {
+  id            String   @id @default(cuid())
+  name          String   // e.g. "Axis Bank (Deposit)", "USDT-TRC20"
+  type          String   // BANK, CRYPTO
+  accountHolder String?
+  accountNumber String?
+  bankName      String?
+  ifscOrSwift   String?
+  address       String?
+  network       String?
+  instructions  String?
+  minAmount     Float    @default(10.0)
+  maxAmount     Float?
+  enabled       Boolean  @default(true)
+  displayOrder  Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  adminId    String
+  adminEmail String
+  action     String   // BALANCE_ADJUSTMENT, KYC_APPROVAL, KYC_REJECTION, etc.
+  targetType String   // USER, WALLET, KYC, DEPOSIT, WITHDRAWAL
+  targetId   String
+  details    String
+  createdAt  DateTime @default(now())
+
+  admin      User     @relation(fields: [adminId], references: [id])
+}
+
+model HeroSlide {
+  id            String   @id @default(cuid())
+  badge         String?  // e.g. "200+" or "100x LEVERAGE"
+  title         String   // e.g. "AIRDROPS" or "PERPETUAL TRADING"
+  subtitle      String?  // e.g. "Every month for free!"
+  bgType        String   @default("GRADIENT") // GRADIENT, SOLID, IMAGE
+  bgValue       String   @default("from-blue-900 via-blue-800 to-indigo-900")
+  badgeColor    String   @default("#FACC15")
+  textColor     String   @default("#FFFFFF")
+  subtitleColor String   @default("#BFDBFE")
+  btnText       String?  // e.g. "Claim Now", "Start Trading"
+  btnLink       String?  // e.g. "/trade", "/options"
+  btnEnabled    Boolean  @default(true)
+  btnBgColor    String   @default("#00A070")
+  btnTextColor  String   @default("#FFFFFF")
+  displayOrder  Int      @default(0)
+  enabled       Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Market {
+  id              String   @id @default(cuid())
+  symbol          String   @unique // e.g. "BTC/USDT", "ETH/USDT", "SOL/USDT", "DOGE/USDT"
+  baseAsset       String   // e.g. "BTC", "ETH", "SOL", "DOGE"
+  quoteAsset      String   @default("USDT")
+  displayName     String   // e.g. "Bitcoin", "Ethereum", "Solana", "Dogecoin"
+  binanceSymbol   String   // e.g. "BTCUSDT", "ETHUSDT", "SOLUSDT", "DOGEUSDT"
+  iconUrl         String?  // Optional icon URL or token image
+  category        String   @default("CRYPTO") // CRYPTO, FOREX, COMMODITY
+  tradingModes    String   @default("ALL") // "ALL", "PERPETUAL", "OPTION"
+  status          String   @default("ACTIVE") // "ACTIVE", "INACTIVE", "SUSPENDED", "DELISTED"
+  pricePrecision  Int      @default(2) // e.g. 2, 4, 5, 6
+  qtyPrecision    Int      @default(4)
+  minOrderQty     Float    @default(0.001)
+  maxOrderQty     Float    @default(1000000)
+  minMargin       Float    @default(1.0)
+  maxLeverage     Int      @default(100) // For Perpetual
+  payoutRate      Float    @default(1.8) // For Option
+  isListedOnHome  Boolean  @default(true) // Show on Homepage Market list
+  isTopTicker     Boolean  @default(false) // Show in top 3 tickers on Homepage
+  displayOrder    Int      @default(0) // Ordering
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model VerificationToken {
+  id         String   @id @default(cuid())
+  identifier String   // email address
+  token      String   @unique
+  code       String?  // 6-digit OTP code if applicable
+  type       String   // "PASSWORD_RESET", "PIN_RESET"
+  expiresAt  DateTime
+  used       Boolean  @default(false)
+  attempts   Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  @@index([identifier, type])
+}
+
+model EmailConfig {
+  id                   String   @id @default(cuid())
+  provider             String   // "BREVO", "SMTP", "HOSTINGER", "CUSTOM"
+  name                 String   // e.g. "Brevo SMTP Relay", "Hostinger Business Mail"
+  host                 String?  // e.g. "smtp-relay.brevo.com", "smtp.hostinger.com"
+  port                 Int?     @default(587)
+  encryption           String?  @default("TLS") // "TLS", "SSL", "NONE"
+  username             String?
+  password             String?  // Encrypted or raw password
+  apiKey               String?  // API Key for Brevo REST API
+  fromEmail            String   @default("support@ethsltd.com")
+  fromName             String   @default("ETHSLTD Security")
+  replyTo              String?
+  adminEmails          String?  // Comma-separated list for admin notifications
+  notifyOnRegistration Boolean  @default(true)
+  notifyOnDeposit      Boolean  @default(true)
+  notifyOnWithdrawal   Boolean  @default(true)
+  notifyOnKyc          Boolean  @default(true)
+  enabled              Boolean  @default(true)
+  isDefault            Boolean  @default(false)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+model EmailLog {
+  id           String   @id @default(cuid())
+  recipient    String
+  subject      String
+  eventType    String   // WELCOME, RESET_PASSWORD, RESET_PIN, PASSWORD_CHANGED, PIN_CHANGED, DEPOSIT_STATUS, WITHDRAWAL_STATUS, KYC_STATUS, TEST_EMAIL, ADMIN_ALERT
+  provider     String   // BREVO, SMTP, HOSTINGER, etc.
+  status       String   @default("SENT") // SENT, FAILED, QUEUED
+  errorMessage String?
+  messageId    String?
+  createdAt    DateTime @default(now())
+
+  @@index([recipient])
+  @@index([eventType])
+}
+
+model RmProfile {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rmCode          String   @unique // e.g. "RM-1002"
+  designation     String   @default("Senior Crypto Relationship Manager")
+  department      String   @default("Private Wealth & Institutional Trading")
+  bio             String?  @default("Experienced digital asset advisor specializing in crypto spot, perpetual futures and options risk management.")
+  specialties     String   @default("Perpetual Futures, Hedging, Options, Portfolio Allocation")
+  avatarUrl       String?
+  phone           String?
+  email           String?
+  workingHours    String   @default("09:00 - 21:00 UTC")
+  rating          Float    @default(4.9)
+  experienceYears Int      @default(5)
+  status          String   @default("ACTIVE") // ACTIVE, INACTIVE, BUSY, SUSPENDED
+  maxClients      Int      @default(50)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model RmConnection {
+  id                 String               @id @default(cuid())
+  userId             String
+  rmId               String
+  status             String               @default("REQUESTED") // REQUESTED, ACCEPTED, REJECTED, CANCELLED, ACTIVE, TERMINATED
+  requestMessage     String?
+  responseNotes      String?
+  requestedAt        DateTime             @default(now())
+  respondedAt        DateTime?
+  activatedAt        DateTime?
+  terminatedAt       DateTime?
+  reassignedFromRmId String?
+
+  user               User                 @relation("UserConnections", fields: [userId], references: [id], onDelete: Cascade)
+  rm                 User                 @relation("RmConnections", fields: [rmId], references: [id], onDelete: Cascade)
+  contracts          InvestmentContract[]
+  conversation       RmConversation?
+
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  @@unique([userId, rmId])
+  @@index([userId, status])
+  @@index([rmId, status])
+}
+
+model InvestmentContract {
+  id               String       @id @default(cuid())
+  contractNumber   String       @unique // e.g. "ETH-AGR-2026-92841"
+  connectionId     String
+  connection       RmConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  userId           String
+  rmId             String
+  user             User         @relation("UserContracts", fields: [userId], references: [id], onDelete: Cascade)
+  rm               User         @relation("RmContracts", fields: [rmId], references: [id], onDelete: Cascade)
+
+  title            String       @default("ETH Investment Contract")
+  version          String       @default("1.0.0")
+  status           String       @default("PENDING_SIGNATURE") // DRAFT, PENDING_SIGNATURE, PARTIALLY_SIGNED, FULLY_SIGNED, REJECTED, CANCELLED, EXPIRED, TERMINATED
+
+  // Party A Details (RM / Platform representative)
+  partyAName       String
+  partyARole       String       @default("Platform Relationship Manager (Party A)")
+  partyASignature  String?      // Base64 PNG signature string
+  partyASignedAt   DateTime?
+  partyASignerIp   String?
+  partyASignerUid  Int?
+
+  // Party B Details (Client User)
+  partyBName       String
+  partyBRole       String       @default("Investor / Client (Party B)")
+  partyBSignature  String?      // Base64 PNG signature string
+  partyBSignedAt   DateTime?
+  partyBSignerIp   String?
+  partyBSignerUid  Int?
+
+  // Terms and legal specifications
+  termsText        String
+  companyLegalName String       @default("ETHSLTD Financial Technology Research Group")
+  websiteUrl       String       @default("https://www.ethsltd.com")
+  jurisdiction     String       @default("Virtual Currency International Investment Contract Law")
+  effectiveDate    DateTime?
+  expiresAt        DateTime?
+  auditTrail       String?      // JSON string of all actions, timestamps, and metadata
+
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  @@index([userId, status])
+  @@index([rmId, status])
+}
+
+model RmConversation {
+  id            String       @id @default(cuid())
+  connectionId  String       @unique
+  connection    RmConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  userId        String
+  rmId          String
+  user          User         @relation("ConversationUsers", fields: [userId], references: [id], onDelete: Cascade)
+  rm            User         @relation("ConversationRms", fields: [rmId], references: [id], onDelete: Cascade)
+  isActive      Boolean      @default(true)
+  lastMessageAt DateTime     @default(now())
+  messages      RmMessage[]
+
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@index([userId])
+  @@index([rmId])
+}
+
+model RmMessage {
+  id             String         @id @default(cuid())
+  conversationId String
+  conversation   RmConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String
+  sender         User           @relation("SenderMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  text           String
+  attachmentUrl  String?
+  isRead         Boolean        @default(false)
+  readAt         DateTime?
+  createdAt      DateTime       @default(now())
+
+  @@index([conversationId, createdAt])
+  @@index([senderId, isRead])
+}
+
+model RmNotification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  message   String
+  type      String   // RM_REQUEST, RM_ACCEPTED, RM_REJECTED, CONTRACT_READY, CONTRACT_SIGNED, NEW_MESSAGE, RM_REASSIGNED
+  linkUrl   String?
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead])
+}
+
+
+

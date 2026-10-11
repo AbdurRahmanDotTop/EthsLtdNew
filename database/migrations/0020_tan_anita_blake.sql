@@ -1,0 +1,1 @@
+ALTER TABLE `p2p_messages` ADD `is_read` integer DEFAULT false NOT NULL;

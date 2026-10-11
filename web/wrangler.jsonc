@@ -1,0 +1,32 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ethsltd-new",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-07-27",
+  "workers_dev": true,
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "observability": {
+    "enabled": true
+  },
+  "routes": [
+    { "pattern": "ethsltd.com", "custom_domain": true },
+    { "pattern": "www.ethsltd.com", "custom_domain": true }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "ethsltd-new",
+      "database_id": "ce1856dc-dfc5-4831-8208-5c8646458f61"
+    }
+  ],
+  "vars": {
+    "NEXT_PUBLIC_API_URL": "https://api-ethsltd-new.ethsltd.workers.dev",
+    "NEXT_PUBLIC_APP_URL": "https://ethsltd.com"
+  }
+}

@@ -1,0 +1,57 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Next.js & OpenNext build outputs
+.next/
+.open-next/
+out/
+build/
+dist/
+
+# Cloudflare Wrangler outputs
+.wrangler/
+
+# Environment files and credentials (CRITICAL: Never commit secrets)
+.env
+.env*.local
+.env.development
+.env.test
+.env.production
+.dev.vars
+!.env.example
+
+# Local SQLite databases and backups
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+*.db.backup*
+prisma/dev.db*
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor & OS files
+.DS_Store
+Thumbs.db
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.idea/
+.vscode/
+
+# AI IDE / Scratch agent directories
+.agents/
+.claude/
+.cursor/
+.devin/
+scratch/
+tsc_output.txt

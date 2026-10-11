@@ -1,0 +1,1 @@
+ALTER TABLE `real_manual_deposits` ADD `method` text DEFAULT 'MANUAL';
