@@ -5,6 +5,8 @@ import { getHeroSlides } from "@/actions/slider";
 import { getHomepageMarkets } from "@/actions/markets";
 import Link from "next/link";
 
+export const dynamic = "force-dynamic";
+
 export default async function Home() {
   const [slides, { topTickers, homeListings }] = await Promise.all([
     getHeroSlides(),

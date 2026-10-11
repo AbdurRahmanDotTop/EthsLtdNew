@@ -99,7 +99,7 @@ export async function getAvailableRms(params?: { search?: string; service?: stri
       }
     }
 
-    const mapped = rms.map((rm) => {
+    const mapped = rms.map((rm: any) => {
       const userConn = userConnections[rm.id] || null;
       return {
         id: rm.id,

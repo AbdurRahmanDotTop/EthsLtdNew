@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 
-// Short cache to avoid hitting Binance on every single client polling tick
+export const dynamic = "force-dynamic";
+
+// Short cache to avoid hitting external APIs on every single client polling tick
 let cachedTickers: Record<string, { price: string; changePercent: string; high: string; low: string }> = {};
 let lastFetchTime = 0;
 const CACHE_TTL_MS = 2500; // 2.5 seconds cache
@@ -14,36 +16,68 @@ export async function GET() {
       return NextResponse.json({ success: true, tickers: cachedTickers, cached: true });
     }
 
-    // Fetch from Binance public 24hr ticker API
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 4000);
 
+    let fetchedMap: Record<string, { price: string; changePercent: string; high: string; low: string }> = {};
+
+    // 1. Try MEXC first (extremely reliable on Cloudflare Workers edge network)
     try {
-      const res = await fetch("https://api.binance.com/api/v3/ticker/24hr", {
+      const res = await fetch("https://api.mexc.com/api/v3/ticker/24hr", {
         signal: controller.signal,
         cache: "no-store",
       });
-      clearTimeout(timeoutId);
-
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data)) {
-          const map: Record<string, { price: string; changePercent: string; high: string; low: string }> = {};
           for (const item of data) {
-            map[item.symbol] = {
-              price: item.lastPrice,
-              changePercent: parseFloat(item.priceChangePercent).toFixed(2) + "%",
-              high: item.highPrice,
-              low: item.lowPrice,
+            const pctVal = parseFloat(item.priceChangePercent || "0") * 100;
+            const formattedPct = (pctVal >= 0 ? "+" : "") + pctVal.toFixed(2) + "%";
+            fetchedMap[item.symbol] = {
+              price: item.lastPrice || "0",
+              changePercent: formattedPct,
+              high: item.highPrice || item.lastPrice || "0",
+              low: item.lowPrice || item.lastPrice || "0",
             };
           }
-          cachedTickers = map;
-          lastFetchTime = now;
         }
       }
-    } catch (fetchErr) {
-      // If Binance fetch fails/times out, use cachedTickers
-      console.warn("Binance ticker fetch failed, using stale cache:", fetchErr);
+    } catch {
+      // Fallback below
+    }
+
+    // 2. Fallback to Binance if MEXC failed
+    if (Object.keys(fetchedMap).length === 0) {
+      try {
+        const res = await fetch("https://api.binance.com/api/v3/ticker/24hr", {
+          signal: controller.signal,
+          cache: "no-store",
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data)) {
+            for (const item of data) {
+              const pctVal = parseFloat(item.priceChangePercent || "0");
+              const formattedPct = (pctVal >= 0 ? "+" : "") + pctVal.toFixed(2) + "%";
+              fetchedMap[item.symbol] = {
+                price: item.lastPrice || "0",
+                changePercent: formattedPct,
+                high: item.highPrice || "0",
+                low: item.lowPrice || "0",
+              };
+            }
+          }
+        }
+      } catch {
+        // Suppress fallback error
+      }
+    }
+
+    clearTimeout(timeoutId);
+
+    if (Object.keys(fetchedMap).length > 0) {
+      cachedTickers = fetchedMap;
+      lastFetchTime = now;
     }
 
     return NextResponse.json({

@@ -1047,7 +1047,7 @@ export async function getAllRmsAdmin() {
     orderBy: { createdAt: "desc" },
   });
 
-  return rms.map((rm) => ({
+  return rms.map((rm: any) => ({
     id: rm.id,
     uid: rm.uid,
     name: rm.name,
