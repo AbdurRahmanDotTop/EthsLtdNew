@@ -169,7 +169,14 @@ export default function KYCPage() {
         body: formData,
       });
 
-      const data = await res.json();
+      let data: any;
+      const resText = await res.text();
+      try {
+        data = JSON.parse(resText);
+      } catch {
+        console.error("Non-JSON upload response:", resText);
+        throw new Error(`Upload server error (${res.status}). Please try again.`);
+      }
 
       if (!res.ok || !data.success) {
         throw new Error(data.error || "Upload failed. Please try again.");

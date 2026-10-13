@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
+import { saveKycDocumentToD1 } from "@/lib/kyc-storage";
 import path from "path";
-import fs from "fs";
 import crypto from "crypto";
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
@@ -71,19 +71,23 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 6. Ensure secure private storage directory exists outside public
-    const storageDir = path.join(process.cwd(), "storage", "kyc");
-    await fs.promises.mkdir(storageDir, { recursive: true });
-
-    // 7. Generate collision-free randomized filename tied to user
+    // 6. Generate collision-free randomized filename tied to user
     const cleanSide = side === "front" ? "front" : side === "back" ? "back" : "doc";
     const uniqueId = crypto.randomUUID().replace(/-/g, "").slice(0, 10);
     const safeFilename = `kyc_${user.id}_${cleanSide}_${Date.now()}_${uniqueId}${ext}`;
-    const destinationPath = path.join(storageDir, safeFilename);
 
-    // 8. Write file to private disk
+    // 7. Read file buffer
     const arrayBuffer = await file.arrayBuffer();
-    await fs.promises.writeFile(destinationPath, Buffer.from(arrayBuffer));
+    const buffer = Buffer.from(arrayBuffer);
+
+    // 8. Save file to persistent storage (Cloudflare D1 with local fallback)
+    await saveKycDocumentToD1({
+      filename: safeFilename,
+      userId: user.id,
+      side: cleanSide,
+      mimeType: file.type,
+      buffer,
+    });
 
     // 9. Return secure access URL served via authorized endpoint
     const secureUrl = `/api/kyc/document/${safeFilename}`;
