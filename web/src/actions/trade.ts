@@ -3,6 +3,7 @@
 import prisma, { DBClient, DBWallet, DBOrder } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
+import { sendOrderExecutionNotification } from "@/lib/email";
 
 function safeRevalidate(path: string) {
   try {
@@ -351,6 +352,19 @@ export async function placeOrder({
     safeRevalidate("/trade");
     safeRevalidate("/options");
     safeRevalidate("/assets");
+
+    if (user.email) {
+      sendOrderExecutionNotification({
+        email: user.email,
+        orderId: result.order.id,
+        symbol: result.order.symbol,
+        category: result.order.category || "Perpetual",
+        type: result.order.type,
+        amount: result.order.amount,
+        price: result.order.price,
+        status: result.order.status,
+      }).catch((e) => console.warn("Order execution email dispatch failed:", e));
+    }
     return {
       success: true,
       data: result.order,

@@ -241,15 +241,39 @@ export async function getAllKycApplications() {
   await verifyAdmin();
 
   return prisma.kycApplication.findMany({
-    include: { user: { select: { email: true, uid: true, name: true } } },
+    include: {
+      user: {
+        select: {
+          id: true,
+          email: true,
+          uid: true,
+          name: true,
+          phone: true,
+          createdAt: true,
+        },
+      },
+    },
     orderBy: { createdAt: "desc" },
+  });
+}
+
+export async function getKycAuditHistory(kycId: string) {
+  await verifyAdmin();
+  return prisma.auditLog.findMany({
+    where: {
+      targetType: "KYC",
+      targetId: kycId,
+    },
+    orderBy: { createdAt: "desc" },
+    take: 20,
   });
 }
 
 export async function reviewKyc(
   kycId: string,
-  decision: "APPROVED" | "REJECTED",
-  rejectionReason?: string
+  decision: "APPROVED" | "REJECTED" | "ADDITIONAL_INFO_REQUIRED",
+  reason?: string,
+  checklist?: string[]
 ) {
   const admin = await verifyAdmin();
 
@@ -259,12 +283,26 @@ export async function reviewKyc(
   });
   if (!kyc) return { success: false, error: "KYC application not found." };
 
+  if (decision === "REJECTED" && !reason?.trim()) {
+    return { success: false, error: "Rejection reason is mandatory." };
+  }
+
+  if (decision === "ADDITIONAL_INFO_REQUIRED" && !reason?.trim()) {
+    return {
+      success: false,
+      error: "Remarks/instructions for additional information or re-upload are mandatory.",
+    };
+  }
+
   await prisma.$transaction(async (tx: DBClient) => {
-    await tx.kycApplication.update({
+    await (tx.kycApplication as any).update({
       where: { id: kycId },
       data: {
         status: decision,
-        rejectionReason: decision === "REJECTED" ? rejectionReason : null,
+        rejectionReason: decision === "REJECTED" ? reason?.trim() : null,
+        additionalInfoRequired:
+          decision === "ADDITIONAL_INFO_REQUIRED" ? reason?.trim() : null,
+        adminChecklist: checklist ? JSON.stringify(checklist) : undefined,
         reviewedBy: admin.email,
         reviewedAt: new Date(),
       },
@@ -275,14 +313,26 @@ export async function reviewKyc(
       data: { isKycVerified: decision === "APPROVED" },
     });
 
+    const actionName =
+      decision === "APPROVED"
+        ? "KYC_APPROVAL"
+        : decision === "REJECTED"
+        ? "KYC_REJECTION"
+        : "KYC_ADDITIONAL_INFO_REQUEST";
+
+    const checksStr = checklist && checklist.length > 0 ? ` | Checks: [${checklist.join(", ")}]` : "";
+    const remarksStr = reason?.trim() ? ` | Remarks: "${reason.trim()}"` : "";
+    const docType = (kyc as any).documentType || "ID";
+    const attempts = (kyc as any).attemptCount || 1;
+
     await tx.auditLog.create({
       data: {
         adminId: admin.id,
         adminEmail: admin.email,
-        action: decision === "APPROVED" ? "KYC_APPROVAL" : "KYC_REJECTION",
+        action: actionName,
         targetType: "KYC",
         targetId: kycId,
-        details: `Reviewed KYC for ${kyc.user.email} -> ${decision}${rejectionReason ? ` (${rejectionReason})` : ""}`,
+        details: `KYC ${decision} for ${kyc.user.email} (UID: #${kyc.user.uid}, Doc: ${docType}, Attempt #${attempts})${remarksStr}${checksStr}`,
       },
     });
   });
@@ -295,7 +345,7 @@ export async function reviewKyc(
     sendKycNotification({
       email: kyc.user.email,
       status: decision,
-      reason: rejectionReason,
+      reason: reason?.trim(),
     }).catch((e) => console.warn("KYC notification async failed:", e));
   } catch (e) {
     console.warn("KYC notification dispatch error:", e);
@@ -1440,4 +1490,1362 @@ export async function getAllConnectionsAdmin(filters?: { status?: string; search
 
   return connections;
 }
+
+// ==========================================
+// P2P ADMIN ACTIONS
+// ==========================================
+
+export async function getAdminP2pStats() {
+  await verifyAdmin();
+
+  const [totalOrders, completedOrders, disputedOrders, totalDisputes, activeAds, openDisputes] =
+    await Promise.all([
+      prisma.p2pOrder.count(),
+      prisma.p2pOrder.count({ where: { status: "COMPLETED" } }),
+      prisma.p2pOrder.count({ where: { status: "DISPUTED" } }),
+      prisma.p2pDispute.count(),
+      prisma.p2pAd.count({ where: { status: "ACTIVE" } }),
+      prisma.p2pDispute.count({ where: { status: "OPEN" } }),
+    ]);
+
+  const completed = await prisma.p2pOrder.findMany({
+    where: { status: "COMPLETED" },
+    select: { fiatAmount: true, cryptoAmount: true },
+  });
+
+  const totalVolumeFiat = completed.reduce((sum, o) => sum + (parseFloat(o.fiatAmount) || 0), 0);
+  const totalVolumeCrypto = completed.reduce((sum, o) => sum + (parseFloat(o.cryptoAmount) || 0), 0);
+
+  return {
+    totalOrders,
+    completedOrders,
+    disputedOrders,
+    totalDisputes,
+    activeAds,
+    openDisputes,
+    totalVolumeFiat,
+    totalVolumeCrypto,
+  };
+}
+
+export async function getAdminP2pOrders(filters?: { status?: string; search?: string }) {
+  await verifyAdmin();
+
+  const where: any = {};
+  if (filters?.status && filters.status !== "ALL") {
+    where.status = filters.status.toUpperCase();
+  }
+  if (filters?.search) {
+    const q = filters.search.toLowerCase();
+    where.OR = [
+      { id: { contains: q } },
+      { displayId: { contains: q } },
+      { buyer: { email: { contains: q } } },
+      { seller: { email: { contains: q } } },
+    ];
+  }
+
+  const orders = await prisma.p2pOrder.findMany({
+    where,
+    include: {
+      ad: true,
+      buyer: { select: { id: true, uid: true, name: true, email: true } },
+      seller: { select: { id: true, uid: true, name: true, email: true } },
+      disputes: true,
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  return [...orders].sort((a: any, b: any) => {
+    const timeA = new Date(a.createdAt).getTime() || 0;
+    const timeB = new Date(b.createdAt).getTime() || 0;
+    return timeB - timeA;
+  });
+}
+
+export async function getAdminP2pDisputes(filters?: { status?: string }) {
+  await verifyAdmin();
+
+  const where: any = {};
+  if (filters?.status && filters.status !== "ALL") {
+    where.status = filters.status.toUpperCase();
+  }
+
+  const disputes = await prisma.p2pDispute.findMany({
+    where,
+    include: {
+      order: {
+        include: {
+          ad: true,
+          buyer: { select: { id: true, uid: true, name: true, email: true } },
+          seller: { select: { id: true, uid: true, name: true, email: true } },
+        },
+      },
+      opener: { select: { id: true, uid: true, name: true, email: true } },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  const sortedDisputes = [...disputes].sort((a: any, b: any) => {
+    const timeA = new Date(a.createdAt).getTime() || 0;
+    const timeB = new Date(b.createdAt).getTime() || 0;
+    return timeB - timeA;
+  });
+
+  return sortedDisputes.map((d: any) => ({
+    ...d,
+    evidenceUrls: typeof d.evidenceUrls === "string" ? JSON.parse(d.evidenceUrls || "[]") : d.evidenceUrls,
+  }));
+}
+
+export async function resolveAdminP2pDispute(
+  disputeId: string,
+  data: {
+    decision: "BUYER_WINS" | "SELLER_WINS" | "SPLIT" | "DISMISSED";
+    resolutionNotes?: string;
+    releaseEscrowTo?: "BUYER" | "SELLER" | "NONE";
+  }
+) {
+  const admin = await verifyAdmin();
+
+  const dispute = await prisma.p2pDispute.findUnique({
+    where: { id: disputeId },
+    include: { order: { include: { ad: true } } },
+  });
+
+  if (!dispute) {
+    return { success: false, error: "Dispute not found" };
+  }
+
+  const order = dispute.order;
+  if (!order) {
+    return { success: false, error: "Order associated with dispute not found" };
+  }
+
+  const asset = order.ad.asset;
+  const cryptoNum = parseFloat(order.cryptoAmount) || 0;
+
+  const result = await prisma.$transaction(async (tx: DBClient) => {
+    // 1. Release escrow according to decision
+    if (data.releaseEscrowTo === "BUYER" || data.decision === "BUYER_WINS") {
+      // Deduct seller escrow (check P2P wallet first, then Currency wallet)
+      let sellerWallet = await tx.wallet.findFirst({
+        where: { userId: order.sellerId, asset, type: "P2P", escrowBalance: { gte: cryptoNum } },
+      });
+      if (!sellerWallet) {
+        sellerWallet = await tx.wallet.findFirst({
+          where: { userId: order.sellerId, asset, type: "Currency" },
+        });
+      }
+      if (sellerWallet) {
+        const decAmt = Math.min(sellerWallet.escrowBalance, cryptoNum);
+        await tx.wallet.update({
+          where: { id: sellerWallet.id },
+          data: { escrowBalance: { decrement: decAmt } },
+        });
+      }
+
+      // Credit buyer's Funding (P2P) wallet
+      let buyerWallet = await tx.wallet.findFirst({
+        where: { userId: order.buyerId, asset, type: "P2P" },
+      });
+      if (!buyerWallet) {
+        buyerWallet = await tx.wallet.create({
+          data: { userId: order.buyerId, asset, type: "P2P", balance: cryptoNum },
+        });
+      } else {
+        await tx.wallet.update({
+          where: { id: buyerWallet.id },
+          data: { balance: { increment: cryptoNum } },
+        });
+      }
+
+      // Double-entry transaction records
+      await tx.transaction.create({
+        data: {
+          userId: order.buyerId,
+          type: "P2P",
+          asset,
+          amount: cryptoNum,
+          status: "Passed",
+          description: `Dispute Resolution: Received ${cryptoNum} ${asset} for P2P Order ${order.displayId || order.id}`,
+        },
+      });
+
+      await tx.transaction.create({
+        data: {
+          userId: order.sellerId,
+          type: "P2P",
+          asset,
+          amount: -cryptoNum,
+          status: "Passed",
+          description: `Dispute Resolution: Deducted ${cryptoNum} ${asset} for P2P Order ${order.displayId || order.id}`,
+        },
+      });
+
+      await tx.p2pOrder.update({
+        where: { id: order.id },
+        data: { status: "COMPLETED" },
+      });
+    } else if (data.releaseEscrowTo === "SELLER" || data.decision === "SELLER_WINS") {
+      // Return escrow to seller balance (check P2P wallet first, then Currency wallet)
+      let sellerWallet = await tx.wallet.findFirst({
+        where: { userId: order.sellerId, asset, type: "P2P", escrowBalance: { gte: cryptoNum } },
+      });
+      if (!sellerWallet) {
+        sellerWallet = await tx.wallet.findFirst({
+          where: { userId: order.sellerId, asset, type: "Currency" },
+        });
+      }
+      if (sellerWallet) {
+        const decAmt = Math.min(sellerWallet.escrowBalance, cryptoNum);
+        await tx.wallet.update({
+          where: { id: sellerWallet.id },
+          data: {
+            escrowBalance: { decrement: decAmt },
+            balance: { increment: cryptoNum },
+          },
+        });
+      }
+
+      await tx.p2pOrder.update({
+        where: { id: order.id },
+        data: { status: "CANCELLED" },
+      });
+    }
+
+    // 2. Update dispute status
+    const status =
+      data.decision === "BUYER_WINS"
+        ? "RESOLVED_BUYER"
+        : data.decision === "SELLER_WINS"
+        ? "RESOLVED_SELLER"
+        : "CANCELLED";
+
+    const updatedDispute = await tx.p2pDispute.update({
+      where: { id: disputeId },
+      data: {
+        status,
+        adminNotes: data.resolutionNotes || `Decision: ${data.decision}`,
+        assignedAdminId: admin.id,
+      },
+    });
+
+    // 3. Post system message
+    await tx.p2pMessage.create({
+      data: {
+        orderId: order.id,
+        senderId: admin.id,
+        content: `Admin Dispute Resolved: Decision '${data.decision}'. Notes: ${data.resolutionNotes || "None"}`,
+        type: "SYSTEM",
+      },
+    });
+
+    // 4. Audit Log
+    await tx.auditLog.create({
+      data: {
+        adminId: admin.id,
+        adminEmail: admin.email,
+        action: "RESOLVE_P2P_DISPUTE",
+        targetType: "P2P_DISPUTE",
+        targetId: disputeId,
+        details: `Resolved dispute ${dispute.displayId || dispute.id} with decision ${data.decision}. Notes: ${data.resolutionNotes || "None"}`,
+      },
+    });
+
+    return updatedDispute;
+  });
+
+  safeRevalidate("/admin/p2p/disputes");
+  safeRevalidate("/admin/p2p/orders");
+  safeRevalidate(`/p2p/order/${order.id}`);
+
+  return { success: true, data: result };
+}
+
+// -------------------------------------------------------------
+// 12. Admin Centralized P2P Payment Method Management
+// -------------------------------------------------------------
+
+export interface AdminP2pPaymentMethodInput {
+  identifier: string;
+  name: string;
+  channelTypeId?: string | null;
+  type?: string; // BANK, UPI, WALLET, OTHER
+  currency?: string; // ALL, INR, USD, EUR, etc.
+  instructions?: string;
+  fields?: any;
+  isActive?: boolean;
+  displayOrder?: number;
+}
+
+export async function getAdminP2pPaymentMethods(): Promise<{ success: boolean; data?: any[]; channelTypes?: any[]; error?: string }> {
+  try {
+    await verifyAdmin();
+
+    const [methods, activeAds, channelTypes] = await Promise.all([
+      (prisma.p2pSystemPaymentMethod as any).findMany({
+        include: {
+          channelType: {
+            include: {
+              fields: {
+                orderBy: { displayOrder: "asc" },
+              },
+            },
+          },
+        },
+        orderBy: { displayOrder: "asc" },
+      }),
+      prisma.p2pAd.findMany({
+        where: { status: { in: ["ACTIVE", "PAUSED"] } },
+        select: { id: true, paymentMethods: true },
+      }),
+      prisma.p2pChannelType.findMany({
+        where: { isActive: true },
+        orderBy: { displayOrder: "asc" },
+        include: {
+          fields: {
+            where: { isActive: true },
+            orderBy: { displayOrder: "asc" },
+          },
+        },
+      }),
+    ]);
+
+    const parsedMethods = methods.map((m: any) => {
+      let adUsageCount = 0;
+      const identifierLower = m.identifier.toLowerCase();
+      const nameLower = m.name.toLowerCase();
+
+      for (const ad of activeAds) {
+        try {
+          const methodsArr =
+            typeof ad.paymentMethods === "string"
+              ? JSON.parse(ad.paymentMethods || "[]")
+              : ad.paymentMethods;
+          if (Array.isArray(methodsArr)) {
+            const isUsed = methodsArr.some((item: any) => {
+              const itemName = typeof item === "string" ? item : (item?.type || item?.name || "");
+              const itemLower = itemName.toLowerCase();
+              return (
+                itemLower === identifierLower ||
+                itemLower === nameLower ||
+                itemLower.includes(identifierLower)
+              );
+            });
+            if (isUsed) adUsageCount++;
+          }
+        } catch {}
+      }
+
+      return {
+        ...m,
+        fields: typeof m.fields === "string" ? JSON.parse(m.fields || "[]") : m.fields,
+        adUsageCount,
+      };
+    });
+
+    return { success: true, data: parsedMethods, channelTypes };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to load payment methods" };
+  }
+}
+
+export async function createAdminP2pPaymentMethod(data: AdminP2pPaymentMethodInput) {
+  const admin = await verifyAdmin();
+
+  if (!data.name?.trim()) {
+    return { success: false, error: "Payment method name is required." };
+  }
+
+  const identifier = (data.identifier || data.name)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "_")
+    .replace(/_+/g, "_");
+
+  const existing = await prisma.p2pSystemPaymentMethod.findUnique({
+    where: { identifier },
+  });
+
+  if (existing) {
+    return { success: false, error: `A payment method with identifier '${identifier}' already exists.` };
+  }
+
+  let inferredType = data.type || "BANK";
+  if (data.channelTypeId) {
+    const ct = await prisma.p2pChannelType.findUnique({ where: { id: data.channelTypeId } });
+    if (ct) inferredType = ct.identifier;
+  }
+
+  const created = await (prisma.p2pSystemPaymentMethod as any).create({
+    data: {
+      identifier,
+      name: data.name.trim(),
+      channelTypeId: data.channelTypeId || null,
+      type: inferredType,
+      currency: (data.currency || "ALL").toUpperCase().trim(),
+      instructions: data.instructions?.trim() || null,
+      fields: data.fields ? JSON.stringify(data.fields) : null,
+      isActive: data.isActive !== undefined ? data.isActive : true,
+      displayOrder: typeof data.displayOrder === "number" ? data.displayOrder : 0,
+    },
+    include: {
+      channelType: {
+        include: {
+          fields: { orderBy: { displayOrder: "asc" } },
+        },
+      },
+    },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      adminId: admin.id,
+      adminEmail: admin.email,
+      action: "CREATE_P2P_PAYMENT_METHOD",
+      targetType: "P2P_SYSTEM_PAYMENT_METHOD",
+      targetId: created.id,
+      details: `Created P2P payment method '${created.name}' (${created.identifier})`,
+    },
+  });
+
+  safeRevalidate("/admin/p2p/payment-methods");
+  safeRevalidate("/p2p/post-ad");
+  safeRevalidate("/p2p/payment-methods");
+  safeRevalidate("/p2p");
+  return { success: true, data: created };
+}
+
+export async function updateAdminP2pPaymentMethod(
+  id: string,
+  data: Partial<AdminP2pPaymentMethodInput>
+) {
+  const admin = await verifyAdmin();
+
+  const existing = await prisma.p2pSystemPaymentMethod.findUnique({ where: { id } });
+  if (!existing) {
+    return { success: false, error: "Payment method not found." };
+  }
+
+  const updateData: any = {};
+  if (data.name !== undefined) updateData.name = data.name.trim();
+  if (data.channelTypeId !== undefined) {
+    updateData.channelTypeId = data.channelTypeId || null;
+    if (!data.type && data.channelTypeId) {
+      const ct = await prisma.p2pChannelType.findUnique({ where: { id: data.channelTypeId } });
+      if (ct) updateData.type = ct.identifier;
+    }
+  }
+  if (data.type !== undefined) updateData.type = data.type;
+  if (data.currency !== undefined) updateData.currency = data.currency.toUpperCase().trim();
+  if (data.instructions !== undefined) updateData.instructions = data.instructions?.trim() || null;
+  if (data.fields !== undefined) updateData.fields = JSON.stringify(data.fields);
+  if (data.isActive !== undefined) updateData.isActive = data.isActive;
+  if (data.displayOrder !== undefined) updateData.displayOrder = data.displayOrder;
+
+  const updated = await (prisma.p2pSystemPaymentMethod as any).update({
+    where: { id },
+    data: updateData,
+    include: {
+      channelType: {
+        include: {
+          fields: { orderBy: { displayOrder: "asc" } },
+        },
+      },
+    },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      adminId: admin.id,
+      adminEmail: admin.email,
+      action: "UPDATE_P2P_PAYMENT_METHOD",
+      targetType: "P2P_SYSTEM_PAYMENT_METHOD",
+      targetId: id,
+      details: `Updated P2P payment method '${updated.name}' (${updated.identifier})`,
+    },
+  });
+
+  safeRevalidate("/admin/p2p/payment-methods");
+  safeRevalidate("/p2p/post-ad");
+  safeRevalidate("/p2p/payment-methods");
+  safeRevalidate("/p2p");
+  return { success: true, data: updated };
+}
+
+export async function toggleAdminP2pPaymentMethod(id: string, isActive: boolean) {
+  const admin = await verifyAdmin();
+
+  const existing = await prisma.p2pSystemPaymentMethod.findUnique({ where: { id } });
+  if (!existing) {
+    return { success: false, error: "Payment method not found." };
+  }
+
+  const updated = await prisma.p2pSystemPaymentMethod.update({
+    where: { id },
+    data: { isActive },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      adminId: admin.id,
+      adminEmail: admin.email,
+      action: "TOGGLE_P2P_PAYMENT_METHOD",
+      targetType: "P2P_SYSTEM_PAYMENT_METHOD",
+      targetId: id,
+      details: `Changed active status of '${existing.name}' to ${isActive}`,
+    },
+  });
+
+  safeRevalidate("/admin/p2p/payment-methods");
+  safeRevalidate("/p2p/post-ad");
+  safeRevalidate("/p2p/payment-methods");
+  safeRevalidate("/p2p");
+  return { success: true, data: updated };
+}
+
+export async function deleteAdminP2pPaymentMethod(id: string) {
+  const admin = await verifyAdmin();
+
+  const existing = await prisma.p2pSystemPaymentMethod.findUnique({ where: { id } });
+  if (!existing) {
+    return { success: false, error: "Payment method not found." };
+  }
+
+  // Safety check: check active ads usage
+  const activeAds = await prisma.p2pAd.findMany({
+    where: { status: { in: ["ACTIVE", "PAUSED"] } },
+    select: { id: true, paymentMethods: true },
+  });
+
+  const identifierLower = existing.identifier.toLowerCase();
+  const nameLower = existing.name.toLowerCase();
+  let usageCount = 0;
+
+  for (const ad of activeAds) {
+    try {
+      const methodsArr =
+        typeof ad.paymentMethods === "string"
+          ? JSON.parse(ad.paymentMethods || "[]")
+          : ad.paymentMethods;
+      if (Array.isArray(methodsArr)) {
+        const isUsed = methodsArr.some((item: any) => {
+          if (typeof item === "string") {
+            const strLower = item.toLowerCase();
+            return strLower === identifierLower || strLower === nameLower;
+          }
+          const itemType = (item?.type || "").toLowerCase();
+          const itemName = (item?.name || "").toLowerCase();
+          const itemIdent = (item?.identifier || "").toLowerCase();
+          return (
+            itemType === identifierLower ||
+            itemType === nameLower ||
+            itemName === identifierLower ||
+            itemName === nameLower ||
+            itemIdent === identifierLower
+          );
+        });
+        if (isUsed) usageCount++;
+      }
+    } catch {}
+  }
+
+  if (usageCount > 0) {
+    return {
+      success: false,
+      error: `Cannot delete payment method '${existing.name}': It is currently configured on ${usageCount} active advertisement(s). Please deactivate it instead so existing ads are preserved while preventing new ads from selecting it.`,
+    };
+  }
+
+  await prisma.p2pSystemPaymentMethod.delete({ where: { id } });
+
+  await prisma.auditLog.create({
+    data: {
+      adminId: admin.id,
+      adminEmail: admin.email,
+      action: "DELETE_P2P_PAYMENT_METHOD",
+      targetType: "P2P_SYSTEM_PAYMENT_METHOD",
+      targetId: id,
+      details: `Deleted P2P payment method '${existing.name}' (${existing.identifier})`,
+    },
+  });
+
+  safeRevalidate("/admin/p2p/payment-methods");
+  safeRevalidate("/p2p/post-ad");
+  safeRevalidate("/p2p/payment-methods");
+  safeRevalidate("/p2p");
+  return { success: true };
+}
+
+// =============================================================
+// 13. Channel Types & Dynamic Custom Fields Management
+// =============================================================
+
+export interface ChannelFieldInput {
+  fieldName: string;
+  fieldLabel: string;
+  fieldType?: string; // TEXT, NUMBER, EMAIL, PHONE, TEXTAREA, DROPDOWN, RADIO, CHECKBOX, DATE
+  required?: boolean;
+  placeholder?: string;
+  helpText?: string;
+  defaultValue?: string;
+  options?: string[]; // for DROPDOWN / RADIO
+  validationRule?: string;
+  minLength?: number;
+  maxLength?: number;
+  displayOrder?: number;
+  isActive?: boolean;
+}
+
+export interface ChannelTypeInput {
+  name: string;
+  identifier: string;
+  description?: string;
+  icon?: string;
+  displayOrder?: number;
+  isActive?: boolean;
+}
+
+export async function getAdminChannelTypes(params?: { search?: string; status?: string }) {
+  await verifyAdmin();
+  try {
+    const where: any = {};
+    if (params?.status === "active") where.isActive = true;
+    if (params?.status === "inactive") where.isActive = false;
+
+    let channelTypes = await prisma.p2pChannelType.findMany({
+      where,
+      include: {
+        fields: {
+          orderBy: { displayOrder: "asc" },
+        },
+        _count: {
+          select: { systemPaymentMethods: true },
+        },
+      },
+      orderBy: { displayOrder: "asc" },
+    });
+
+    if (params?.search?.trim()) {
+      const q = params.search.toLowerCase().trim();
+      channelTypes = channelTypes.filter(
+        (c: any) => c.name.toLowerCase().includes(q) || c.identifier.toLowerCase().includes(q)
+      );
+    }
+
+    const parsed = channelTypes.map((c: any) => ({
+      ...c,
+      fields: c.fields.map((f: any) => ({
+        ...f,
+        options: f.options ? (typeof f.options === "string" ? JSON.parse(f.options) : f.options) : [],
+      })),
+    }));
+
+    return { success: true, data: parsed };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to load channel types" };
+  }
+}
+
+export async function createAdminChannelType(data: ChannelTypeInput) {
+  const admin = await verifyAdmin();
+
+  if (!data.name?.trim()) {
+    return { success: false, error: "Channel Type name is required." };
+  }
+
+  const identifier = (data.identifier || data.name)
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "_")
+    .replace(/_+/g, "_");
+
+  const existing = await prisma.p2pChannelType.findUnique({
+    where: { identifier },
+  });
+
+  if (existing) {
+    return { success: false, error: `Channel Type with code '${identifier}' already exists.` };
+  }
+
+  const created = await prisma.p2pChannelType.create({
+    data: {
+      identifier,
+      name: data.name.trim(),
+      description: data.description?.trim() || null,
+      icon: data.icon?.trim() || "Landmark",
+      displayOrder: typeof data.displayOrder === "number" ? data.displayOrder : 0,
+      isActive: data.isActive !== undefined ? data.isActive : true,
+    },
+    include: {
+      fields: true,
+      _count: { select: { systemPaymentMethods: true } },
+    },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      adminId: admin.id,
+      adminEmail: admin.email,
+      action: "CREATE_CHANNEL_TYPE",
+      targetType: "P2P_CHANNEL_TYPE",
+      targetId: created.id,
+      details: `Created channel type '${created.name}' (${created.identifier})`,
+    },
+  });
+
+  safeRevalidate("/admin/p2p/channels");
+  safeRevalidate("/admin/p2p/payment-methods");
+  safeRevalidate("/p2p/post-ad");
+  return { success: true, data: created };
+}
+
+export async function updateAdminChannelType(id: string, data: Partial<ChannelTypeInput>) {
+  const admin = await verifyAdmin();
+
+  const existing = await prisma.p2pChannelType.findUnique({ where: { id } });
+  if (!existing) {
+    return { success: false, error: "Channel type not found." };
+  }
+
+  const updateData: any = {};
+  if (data.name !== undefined) updateData.name = data.name.trim();
+  if (data.description !== undefined) updateData.description = data.description?.trim() || null;
+  if (data.icon !== undefined) updateData.icon = data.icon?.trim() || "Landmark";
+  if (data.displayOrder !== undefined) updateData.displayOrder = data.displayOrder;
+  if (data.isActive !== undefined) updateData.isActive = data.isActive;
+
+  const updated = await prisma.p2pChannelType.update({
+    where: { id },
+    data: updateData,
+    include: {
+      fields: { orderBy: { displayOrder: "asc" } },
+      _count: { select: { systemPaymentMethods: true } },
+    },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      adminId: admin.id,
+      adminEmail: admin.email,
+      action: "UPDATE_CHANNEL_TYPE",
+      targetType: "P2P_CHANNEL_TYPE",
+      targetId: id,
+      details: `Updated channel type '${updated.name}' (${updated.identifier})`,
+    },
+  });
+
+  safeRevalidate("/admin/p2p/channels");
+  safeRevalidate("/admin/p2p/payment-methods");
+  safeRevalidate("/p2p/post-ad");
+  return { success: true, data: updated };
+}
+
+export async function toggleAdminChannelType(id: string, isActive: boolean) {
+  const admin = await verifyAdmin();
+
+  const existing = await prisma.p2pChannelType.findUnique({ where: { id } });
+  if (!existing) return { success: false, error: "Channel type not found." };
+
+  const updated = await prisma.p2pChannelType.update({
+    where: { id },
+    data: { isActive },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      adminId: admin.id,
+      adminEmail: admin.email,
+      action: "TOGGLE_CHANNEL_TYPE",
+      targetType: "P2P_CHANNEL_TYPE",
+      targetId: id,
+      details: `Changed channel type '${existing.name}' status to ${isActive}`,
+    },
+  });
+
+  safeRevalidate("/admin/p2p/channels");
+  safeRevalidate("/admin/p2p/payment-methods");
+  safeRevalidate("/p2p/post-ad");
+  return { success: true, data: updated };
+}
+
+export async function deleteAdminChannelType(id: string) {
+  const admin = await verifyAdmin();
+
+  const existing = await prisma.p2pChannelType.findUnique({
+    where: { id },
+    include: {
+      systemPaymentMethods: { select: { id: true, name: true } },
+    },
+  });
+
+  if (!existing) return { success: false, error: "Channel type not found." };
+
+  if (existing.systemPaymentMethods.length > 0) {
+    return {
+      success: false,
+      error: `Cannot delete Channel Type '${existing.name}': It is linked to ${existing.systemPaymentMethods.length} payment method(s) (e.g. ${existing.systemPaymentMethods.map((m: any) => m.name).slice(0, 3).join(', ')}). Please reassign or delete the payment methods first.`,
+    };
+  }
+
+  await prisma.p2pChannelType.delete({ where: { id } });
+
+  await prisma.auditLog.create({
+    data: {
+      adminId: admin.id,
+      adminEmail: admin.email,
+      action: "DELETE_CHANNEL_TYPE",
+      targetType: "P2P_CHANNEL_TYPE",
+      targetId: id,
+      details: `Deleted channel type '${existing.name}' (${existing.identifier})`,
+    },
+  });
+
+  safeRevalidate("/admin/p2p/channels");
+  safeRevalidate("/admin/p2p/payment-methods");
+  safeRevalidate("/p2p/post-ad");
+  return { success: true };
+}
+
+export async function createAdminChannelField(channelTypeId: string, data: ChannelFieldInput) {
+  const admin = await verifyAdmin();
+
+  if (!data.fieldName?.trim() || !data.fieldLabel?.trim()) {
+    return { success: false, error: "Field Name and Field Label are required." };
+  }
+
+  const cleanName = data.fieldName.trim().replace(/[^a-zA-Z0-9_]/g, '');
+
+  const existing = await prisma.p2pChannelField.findUnique({
+    where: {
+      channelTypeId_fieldName: {
+        channelTypeId,
+        fieldName: cleanName,
+      },
+    },
+  });
+
+  if (existing) {
+    return { success: false, error: `A field with name '${cleanName}' already exists on this channel type.` };
+  }
+
+  const created = await prisma.p2pChannelField.create({
+    data: {
+      channelTypeId,
+      fieldName: cleanName,
+      fieldLabel: data.fieldLabel.trim(),
+      fieldType: data.fieldType || "TEXT",
+      required: data.required !== undefined ? data.required : true,
+      placeholder: data.placeholder?.trim() || null,
+      helpText: data.helpText?.trim() || null,
+      defaultValue: data.defaultValue?.trim() || null,
+      options: data.options ? JSON.stringify(data.options) : null,
+      validationRule: data.validationRule?.trim() || null,
+      minLength: data.minLength || null,
+      maxLength: data.maxLength || null,
+      displayOrder: typeof data.displayOrder === "number" ? data.displayOrder : 0,
+      isActive: data.isActive !== undefined ? data.isActive : true,
+    },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      adminId: admin.id,
+      adminEmail: admin.email,
+      action: "CREATE_CHANNEL_FIELD",
+      targetType: "P2P_CHANNEL_FIELD",
+      targetId: created.id,
+      details: `Added custom field '${created.fieldLabel}' (${created.fieldName}) to channel type`,
+    },
+  });
+
+  safeRevalidate("/admin/p2p/channels");
+  safeRevalidate("/admin/p2p/payment-methods");
+  safeRevalidate("/p2p/post-ad");
+  return { success: true, data: created };
+}
+
+export async function updateAdminChannelField(fieldId: string, data: Partial<ChannelFieldInput>) {
+  const admin = await verifyAdmin();
+
+  const existing = await prisma.p2pChannelField.findUnique({ where: { id: fieldId } });
+  if (!existing) return { success: false, error: "Field not found." };
+
+  const updateData: any = {};
+  if (data.fieldLabel !== undefined) updateData.fieldLabel = data.fieldLabel.trim();
+  if (data.fieldType !== undefined) updateData.fieldType = data.fieldType;
+  if (data.required !== undefined) updateData.required = data.required;
+  if (data.placeholder !== undefined) updateData.placeholder = data.placeholder?.trim() || null;
+  if (data.helpText !== undefined) updateData.helpText = data.helpText?.trim() || null;
+  if (data.defaultValue !== undefined) updateData.defaultValue = data.defaultValue?.trim() || null;
+  if (data.options !== undefined) updateData.options = JSON.stringify(data.options);
+  if (data.validationRule !== undefined) updateData.validationRule = data.validationRule?.trim() || null;
+  if (data.minLength !== undefined) updateData.minLength = data.minLength || null;
+  if (data.maxLength !== undefined) updateData.maxLength = data.maxLength || null;
+  if (data.displayOrder !== undefined) updateData.displayOrder = data.displayOrder;
+  if (data.isActive !== undefined) updateData.isActive = data.isActive;
+
+  const updated = await prisma.p2pChannelField.update({
+    where: { id: fieldId },
+    data: updateData,
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      adminId: admin.id,
+      adminEmail: admin.email,
+      action: "UPDATE_CHANNEL_FIELD",
+      targetType: "P2P_CHANNEL_FIELD",
+      targetId: fieldId,
+      details: `Updated custom field '${updated.fieldLabel}'`,
+    },
+  });
+
+  safeRevalidate("/admin/p2p/channels");
+  safeRevalidate("/admin/p2p/payment-methods");
+  safeRevalidate("/p2p/post-ad");
+  return { success: true, data: updated };
+}
+
+export async function deleteAdminChannelField(fieldId: string) {
+  const admin = await verifyAdmin();
+
+  const existing = await prisma.p2pChannelField.findUnique({ where: { id: fieldId } });
+  if (!existing) return { success: false, error: "Field not found." };
+
+  await prisma.p2pChannelField.delete({ where: { id: fieldId } });
+
+  await prisma.auditLog.create({
+    data: {
+      adminId: admin.id,
+      adminEmail: admin.email,
+      action: "DELETE_CHANNEL_FIELD",
+      targetType: "P2P_CHANNEL_FIELD",
+      targetId: fieldId,
+      details: `Deleted custom field '${existing.fieldLabel}' (${existing.fieldName})`,
+    },
+  });
+
+  safeRevalidate("/admin/p2p/channels");
+  safeRevalidate("/admin/p2p/payment-methods");
+  safeRevalidate("/p2p/post-ad");
+  return { success: true };
+}
+
+export async function reorderAdminChannelFields(channelTypeId: string, fieldIds: string[]) {
+  await verifyAdmin();
+
+  for (let i = 0; i < fieldIds.length; i++) {
+    await prisma.p2pChannelField.update({
+      where: { id: fieldIds[i] },
+      data: { displayOrder: i + 1 },
+    });
+  }
+
+  safeRevalidate("/admin/p2p/channels");
+  safeRevalidate("/admin/p2p/payment-methods");
+  safeRevalidate("/p2p/post-ad");
+  return { success: true };
+}
+
+// =============================================================
+// 14. Crypto Assets Management (Admin)
+// =============================================================
+
+export interface CryptoAssetInput {
+  symbol: string;
+  name: string;
+  iconUrl?: string;
+  description?: string;
+  networks: string[];
+  decimals?: number;
+  isActive?: boolean;
+  canDeposit?: boolean;
+  canWithdraw?: boolean;
+  canP2p?: boolean;
+  displayOrder?: number;
+}
+
+export async function getAdminCryptoAssets(params?: { search?: string; status?: string }) {
+  await verifyAdmin();
+  try {
+    const where: any = {};
+    if (params?.status === "active") where.isActive = true;
+    if (params?.status === "inactive") where.isActive = false;
+
+    const assets = await prisma.cryptoAsset.findMany({
+      where,
+      orderBy: { displayOrder: "asc" },
+    });
+
+    let result = assets.map((a: any) => ({
+      ...a,
+      networks: typeof a.networks === "string" ? JSON.parse(a.networks || "[]") : a.networks,
+    }));
+
+    if (params?.search?.trim()) {
+      const q = params.search.toLowerCase().trim();
+      result = result.filter(
+        (a: any) => a.symbol.toLowerCase().includes(q) || a.name.toLowerCase().includes(q)
+      );
+    }
+
+    return { success: true, data: result };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to load crypto assets" };
+  }
+}
+
+export async function createAdminCryptoAsset(data: CryptoAssetInput) {
+  const admin = await verifyAdmin();
+
+  if (!data.symbol?.trim() || !data.name?.trim()) {
+    return { success: false, error: "Asset Symbol and Name are required." };
+  }
+
+  const symbol = data.symbol.trim().toUpperCase();
+  const existing = await prisma.cryptoAsset.findUnique({ where: { symbol } });
+  if (existing) {
+    return { success: false, error: `Crypto Asset '${symbol}' already exists.` };
+  }
+
+  const created = await prisma.cryptoAsset.create({
+    data: {
+      symbol,
+      name: data.name.trim(),
+      iconUrl: data.iconUrl?.trim() || null,
+      description: data.description?.trim() || null,
+      networks: JSON.stringify(data.networks || []),
+      decimals: typeof data.decimals === "number" ? data.decimals : 8,
+      isActive: data.isActive !== undefined ? data.isActive : true,
+      canDeposit: data.canDeposit !== undefined ? data.canDeposit : true,
+      canWithdraw: data.canWithdraw !== undefined ? data.canWithdraw : true,
+      canP2p: data.canP2p !== undefined ? data.canP2p : true,
+      displayOrder: typeof data.displayOrder === "number" ? data.displayOrder : 0,
+    },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      adminId: admin.id,
+      adminEmail: admin.email,
+      action: "CREATE_CRYPTO_ASSET",
+      targetType: "CRYPTO_ASSET",
+      targetId: created.id,
+      details: `Created crypto asset '${created.name}' (${created.symbol})`,
+    },
+  });
+
+  safeRevalidate("/admin/assets/crypto");
+  safeRevalidate("/p2p");
+  safeRevalidate("/p2p/post-ad");
+  safeRevalidate("/assets");
+  return { success: true, data: created };
+}
+
+export async function updateAdminCryptoAsset(id: string, data: Partial<CryptoAssetInput>) {
+  const admin = await verifyAdmin();
+
+  const existing = await prisma.cryptoAsset.findUnique({ where: { id } });
+  if (!existing) return { success: false, error: "Crypto asset not found." };
+
+  const updateData: any = {};
+  if (data.name !== undefined) updateData.name = data.name.trim();
+  if (data.iconUrl !== undefined) updateData.iconUrl = data.iconUrl?.trim() || null;
+  if (data.description !== undefined) updateData.description = data.description?.trim() || null;
+  if (data.networks !== undefined) updateData.networks = JSON.stringify(data.networks);
+  if (data.decimals !== undefined) updateData.decimals = data.decimals;
+  if (data.isActive !== undefined) updateData.isActive = data.isActive;
+  if (data.canDeposit !== undefined) updateData.canDeposit = data.canDeposit;
+  if (data.canWithdraw !== undefined) updateData.canWithdraw = data.canWithdraw;
+  if (data.canP2p !== undefined) updateData.canP2p = data.canP2p;
+  if (data.displayOrder !== undefined) updateData.displayOrder = data.displayOrder;
+
+  const updated = await prisma.cryptoAsset.update({
+    where: { id },
+    data: updateData,
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      adminId: admin.id,
+      adminEmail: admin.email,
+      action: "UPDATE_CRYPTO_ASSET",
+      targetType: "CRYPTO_ASSET",
+      targetId: id,
+      details: `Updated crypto asset '${updated.name}' (${updated.symbol})`,
+    },
+  });
+
+  safeRevalidate("/admin/assets/crypto");
+  safeRevalidate("/p2p");
+  safeRevalidate("/p2p/post-ad");
+  safeRevalidate("/assets");
+  return { success: true, data: updated };
+}
+
+export async function toggleAdminCryptoAsset(
+  id: string,
+  field: "isActive" | "canDeposit" | "canWithdraw" | "canP2p",
+  value: boolean
+) {
+  const admin = await verifyAdmin();
+
+  const existing = await prisma.cryptoAsset.findUnique({ where: { id } });
+  if (!existing) return { success: false, error: "Crypto asset not found." };
+
+  const updated = await prisma.cryptoAsset.update({
+    where: { id },
+    data: { [field]: value },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      adminId: admin.id,
+      adminEmail: admin.email,
+      action: "TOGGLE_CRYPTO_ASSET",
+      targetType: "CRYPTO_ASSET",
+      targetId: id,
+      details: `Updated '${existing.symbol}' ${field} to ${value}`,
+    },
+  });
+
+  safeRevalidate("/admin/assets/crypto");
+  safeRevalidate("/p2p");
+  safeRevalidate("/p2p/post-ad");
+  safeRevalidate("/assets");
+  return { success: true, data: updated };
+}
+
+export async function deleteAdminCryptoAsset(id: string) {
+  const admin = await verifyAdmin();
+
+  const existing = await prisma.cryptoAsset.findUnique({ where: { id } });
+  if (!existing) return { success: false, error: "Crypto asset not found." };
+
+  // Safety checks: check if used in active P2pAds or funded Wallets
+  const [activeAdsCount, walletsCount] = await Promise.all([
+    prisma.p2pAd.count({ where: { asset: existing.symbol, status: { in: ["ACTIVE", "PAUSED"] } } }),
+    prisma.wallet.count({ where: { asset: existing.symbol, balance: { gt: 0 } } }),
+  ]);
+
+  if (activeAdsCount > 0 || walletsCount > 0) {
+    return {
+      success: false,
+      error: `Cannot hard-delete '${existing.symbol}': It is currently used in ${activeAdsCount} active P2P ad(s) and ${walletsCount} funded user wallet(s). Deactivate or disable P2P trading for this asset instead to preserve database integrity.`,
+    };
+  }
+
+  await prisma.cryptoAsset.delete({ where: { id } });
+
+  await prisma.auditLog.create({
+    data: {
+      adminId: admin.id,
+      adminEmail: admin.email,
+      action: "DELETE_CRYPTO_ASSET",
+      targetType: "CRYPTO_ASSET",
+      targetId: id,
+      details: `Deleted crypto asset '${existing.name}' (${existing.symbol})`,
+    },
+  });
+
+  safeRevalidate("/admin/assets/crypto");
+  safeRevalidate("/p2p");
+  safeRevalidate("/p2p/post-ad");
+  safeRevalidate("/assets");
+  return { success: true };
+}
+
+// =============================================================
+// 15. Fiat Currencies Management (Admin)
+// =============================================================
+
+export interface FiatCurrencyInput {
+  code: string;
+  name: string;
+  symbol: string;
+  country?: string;
+  decimals?: number;
+  isActive?: boolean;
+  canP2p?: boolean;
+  displayOrder?: number;
+}
+
+export async function getAdminFiatCurrencies(params?: { search?: string; status?: string }) {
+  await verifyAdmin();
+  try {
+    const where: any = {};
+    if (params?.status === "active") where.isActive = true;
+    if (params?.status === "inactive") where.isActive = false;
+
+    let currencies = await prisma.fiatCurrency.findMany({
+      where,
+      orderBy: { displayOrder: "asc" },
+    });
+
+    if (params?.search?.trim()) {
+      const q = params.search.toLowerCase().trim();
+      currencies = currencies.filter(
+        (c: any) =>
+          c.code.toLowerCase().includes(q) ||
+          c.name.toLowerCase().includes(q) ||
+          (c.country && c.country.toLowerCase().includes(q))
+      );
+    }
+
+    return { success: true, data: currencies };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to load fiat currencies" };
+  }
+}
+
+export async function createAdminFiatCurrency(data: FiatCurrencyInput) {
+  const admin = await verifyAdmin();
+
+  if (!data.code?.trim() || !data.name?.trim() || !data.symbol?.trim()) {
+    return { success: false, error: "Currency Code, Name and Symbol are required." };
+  }
+
+  const code = data.code.trim().toUpperCase();
+  const existing = await prisma.fiatCurrency.findUnique({ where: { code } });
+  if (existing) {
+    return { success: false, error: `Fiat currency with code '${code}' already exists.` };
+  }
+
+  const created = await prisma.fiatCurrency.create({
+    data: {
+      code,
+      name: data.name.trim(),
+      symbol: data.symbol.trim(),
+      country: data.country?.trim() || null,
+      decimals: typeof data.decimals === "number" ? data.decimals : 2,
+      isActive: data.isActive !== undefined ? data.isActive : true,
+      canP2p: data.canP2p !== undefined ? data.canP2p : true,
+      displayOrder: typeof data.displayOrder === "number" ? data.displayOrder : 0,
+    },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      adminId: admin.id,
+      adminEmail: admin.email,
+      action: "CREATE_FIAT_CURRENCY",
+      targetType: "FIAT_CURRENCY",
+      targetId: created.id,
+      details: `Created fiat currency '${created.name}' (${created.code})`,
+    },
+  });
+
+  safeRevalidate("/admin/assets/fiat");
+  safeRevalidate("/p2p");
+  safeRevalidate("/p2p/post-ad");
+  return { success: true, data: created };
+}
+
+export async function updateAdminFiatCurrency(id: string, data: Partial<FiatCurrencyInput>) {
+  const admin = await verifyAdmin();
+
+  const existing = await prisma.fiatCurrency.findUnique({ where: { id } });
+  if (!existing) return { success: false, error: "Fiat currency not found." };
+
+  const updateData: any = {};
+  if (data.name !== undefined) updateData.name = data.name.trim();
+  if (data.symbol !== undefined) updateData.symbol = data.symbol.trim();
+  if (data.country !== undefined) updateData.country = data.country?.trim() || null;
+  if (data.decimals !== undefined) updateData.decimals = data.decimals;
+  if (data.isActive !== undefined) updateData.isActive = data.isActive;
+  if (data.canP2p !== undefined) updateData.canP2p = data.canP2p;
+  if (data.displayOrder !== undefined) updateData.displayOrder = data.displayOrder;
+
+  const updated = await prisma.fiatCurrency.update({
+    where: { id },
+    data: updateData,
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      adminId: admin.id,
+      adminEmail: admin.email,
+      action: "UPDATE_FIAT_CURRENCY",
+      targetType: "FIAT_CURRENCY",
+      targetId: id,
+      details: `Updated fiat currency '${updated.name}' (${updated.code})`,
+    },
+  });
+
+  safeRevalidate("/admin/assets/fiat");
+  safeRevalidate("/p2p");
+  safeRevalidate("/p2p/post-ad");
+  return { success: true, data: updated };
+}
+
+export async function toggleAdminFiatCurrency(
+  id: string,
+  field: "isActive" | "canP2p",
+  value: boolean
+) {
+  const admin = await verifyAdmin();
+
+  const existing = await prisma.fiatCurrency.findUnique({ where: { id } });
+  if (!existing) return { success: false, error: "Fiat currency not found." };
+
+  const updated = await prisma.fiatCurrency.update({
+    where: { id },
+    data: { [field]: value },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      adminId: admin.id,
+      adminEmail: admin.email,
+      action: "TOGGLE_FIAT_CURRENCY",
+      targetType: "FIAT_CURRENCY",
+      targetId: id,
+      details: `Updated '${existing.code}' ${field} to ${value}`,
+    },
+  });
+
+  safeRevalidate("/admin/assets/fiat");
+  safeRevalidate("/p2p");
+  safeRevalidate("/p2p/post-ad");
+  return { success: true, data: updated };
+}
+
+export async function deleteAdminFiatCurrency(id: string) {
+  const admin = await verifyAdmin();
+
+  const existing = await prisma.fiatCurrency.findUnique({ where: { id } });
+  if (!existing) return { success: false, error: "Fiat currency not found." };
+
+  const activeAdsCount = await prisma.p2pAd.count({
+    where: { fiat: existing.code, status: { in: ["ACTIVE", "PAUSED"] } },
+  });
+
+  if (activeAdsCount > 0) {
+    return {
+      success: false,
+      error: `Cannot delete fiat currency '${existing.code}': It is referenced by ${activeAdsCount} active P2P advertisement(s). Please deactivate it instead so existing records and ads remain safe.`,
+    };
+  }
+
+  await prisma.fiatCurrency.delete({ where: { id } });
+
+  await prisma.auditLog.create({
+    data: {
+      adminId: admin.id,
+      adminEmail: admin.email,
+      action: "DELETE_FIAT_CURRENCY",
+      targetType: "FIAT_CURRENCY",
+      targetId: id,
+      details: `Deleted fiat currency '${existing.name}' (${existing.code})`,
+    },
+  });
+
+  safeRevalidate("/admin/assets/fiat");
+  safeRevalidate("/p2p");
+  safeRevalidate("/p2p/post-ad");
+  return { success: true };
+}
+
 

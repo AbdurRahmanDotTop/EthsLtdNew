@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, Space_Grotesk, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
-import { Header } from "@/components/layout/Header";
-import { BottomNavigation } from "@/components/layout/BottomNavigation";
+import { AppShell } from "@/components/layout/AppShell";
 import { Toaster } from "sonner";
 
 const inter = Inter({
@@ -38,14 +37,10 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
       <body
-        className={`${inter.variable} ${spaceGrotesk.variable} ${jetbrainsMono.variable} min-h-screen bg-[#121212] text-[#F1F5F9] font-sans antialiased pb-[calc(64px+env(safe-area-inset-bottom))]`}
+        className={`${inter.variable} ${spaceGrotesk.variable} ${jetbrainsMono.variable} min-h-screen bg-[#121212] text-[#F1F5F9] font-sans antialiased`}
         suppressHydrationWarning
       >
-        <Header />
-        <main className="flex-1 w-full max-w-screen-xl mx-auto pb-16">
-          {children}
-        </main>
-        <BottomNavigation />
+        <AppShell>{children}</AppShell>
         <Toaster
           richColors
           position="top-right"

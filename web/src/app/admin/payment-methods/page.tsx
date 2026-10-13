@@ -241,15 +241,30 @@ export default function AdminPaymentMethodsPage() {
 
   return (
     <div className="space-y-6">
+      {/* Tab Switcher */}
+      <div className="flex items-center gap-2 border-b border-white/10 pb-3">
+        <span className="px-3.5 py-1.5 rounded-xl bg-[#00A070] text-white text-xs font-bold shadow-md shadow-[#00A070]/20 flex items-center gap-1.5">
+          <CreditCard className="w-3.5 h-3.5" />
+          Deposit Settlement Gateways
+        </span>
+        <a
+          href="/admin/p2p/payment-methods"
+          className="px-3.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white text-xs font-semibold transition-colors flex items-center gap-1.5"
+        >
+          <Building2 className="w-3.5 h-3.5 text-[#00A070]" />
+          P2P Peer Payment Methods →
+        </a>
+      </div>
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold text-white flex items-center gap-2">
             <CreditCard className="w-5 h-5 text-[#00A070]" />
-            Payment Methods & Gateway Gateways
+            Deposit Gateways (Bank & Crypto Direct)
           </h1>
           <p className="text-xs text-gray-400 mt-0.5">
-            Configure deposit settlement channels, bank beneficiary details, and cryptocurrency receiving wallets
+            Configure platform receiving channels for user deposit settlements and balance credits.
           </p>
         </div>
 

@@ -7,12 +7,31 @@ workers_dev = true
 [[d1_databases]]
 binding = "DB"
 database_name = "ethsltd-new"
-database_id = "ce1856dc-dfc5-4831-8208-5c8646458f61"
+database_id = "9fa25eaa-6b12-4da0-ad92-8f2a9ec41496"
 migrations_dir = "../database/migrations"
 
 [vars]
+JWT_SECRET = "ethsltd_super_secret_jwt_key_2026_production"
+# BREVO_API_KEY should be set via wrangler secret or Cloudflare dashboard
 CREGIS_PROXY_URL = "https://techilyfly.com/ethsltd/cregis-proxy.php"
 CREGIS_PROXY_SECRET = "ETHSLTD_CREGIS_PROXY_SECURE_TOKEN_2026"
+EMAIL_FROM = "support@ethsltd.com"
+EMAIL_FROM_NAME = "ETHSLTD"
+EMAIL_FROM_NAME_SECURITY = "ETHSLTD Security"
+EMAIL_FROM_NAME_ORDERS = "ETHSLTD Orders"
+EMAIL_FROM_NAME_P2P = "ETHSLTD P2P"
+EMAIL_FROM_NAME_WALLET = "ETHSLTD Wallet"
+EMAIL_FROM_NAME_PAYMENTS = "ETHSLTD Payments"
+EMAIL_FROM_NAME_VERIFICATION = "ETHSLTD Verification"
+EMAIL_FROM_NAME_SUPPORT = "ETHSLTD Support"
+EMAIL_FROM_NAME_COMPLIANCE = "ETHSLTD Compliance"
+EMAIL_FROM_NAME_MARKET_ALERTS = "ETHSLTD Market Alerts"
+EMAIL_FROM_NAME_ACCOUNT = "ETHSLTD Account"
+EMAIL_FROM_NAME_UPDATES = "ETHSLTD Updates"
+EMAIL_FROM_NAME_REWARDS = "ETHSLTD Rewards"
+EMAIL_FROM_NAME_REPORTS = "ETHSLTD Reports"
+EMAIL_FROM_NAME_ADMIN_ALERTS = "ETHSLTD Admin Alerts"
+EMAIL_FROM_NAME_API_SECURITY = "ETHSLTD API Security"
 
 [triggers]
 crons = ["* * * * *"] # Run every minute to check SL/TP and liquidations

@@ -21,6 +21,8 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"],
+      "@ethsltd/api-client": ["../packages/api-client/src/index.ts"],
+      "@ethsltd/types": ["../packages/types/src/index.ts"],
       "@prisma/client": ["./node_modules/@prisma/client"],
       ".prisma/client": ["./node_modules/.prisma/client"],
       "@prisma/client/*": ["./node_modules/@prisma/client/*"],

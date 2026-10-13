@@ -13,6 +13,7 @@ const runTx = async (db: any, cb: any) => {
 import { eq, and, desc } from 'drizzle-orm';
 import { Bindings, Variables } from '../db';
 import { EmailService } from '../services/email';
+import { EmailCategory } from '../services/email-categories';
 import { markets, orders, trades, wallets, walletTransactions, currencyRates, positions } from 'database';
 import { jwtMiddleware } from '../middleware/jwt';
 import { generateBusinessId } from '../services/id-generator';
@@ -769,7 +770,8 @@ tradingRoutes.post('/orders', async (c) => {
               { key: 'Status', value: orderData.status }
             ],
             `${appUrl}/trade/${market.replace('-', '_')}`,
-            'View Trade'
+            'View Trade',
+            EmailCategory.ORDERS
           );
         }
       } catch (e) {

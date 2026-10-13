@@ -493,3 +493,116 @@ CREATE INDEX "RmMessage_senderId_isRead_idx" ON "RmMessage"("senderId", "isRead"
 -- CreateIndex
 CREATE INDEX "RmNotification_userId_isRead_idx" ON "RmNotification"("userId", "isRead");
 
+-- P2P Marketplace Tables
+CREATE TABLE IF NOT EXISTS "P2pAd" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "displayId" TEXT UNIQUE,
+    "userId" TEXT NOT NULL,
+    "type" TEXT NOT NULL,
+    "asset" TEXT NOT NULL,
+    "fiat" TEXT NOT NULL,
+    "price" TEXT NOT NULL,
+    "isFloating" BOOLEAN NOT NULL DEFAULT false,
+    "priceMargin" TEXT,
+    "totalAmount" TEXT NOT NULL,
+    "availableAmount" TEXT NOT NULL,
+    "minLimit" TEXT NOT NULL,
+    "maxLimit" TEXT NOT NULL,
+    "paymentWindow" INTEGER NOT NULL DEFAULT 15,
+    "paymentMethods" TEXT NOT NULL,
+    "terms" TEXT,
+    "autoReply" TEXT,
+    "countryRestrictions" TEXT,
+    "status" TEXT NOT NULL DEFAULT 'ACTIVE',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "P2pAd_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS "P2pOrder" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "displayId" TEXT UNIQUE,
+    "adId" TEXT NOT NULL,
+    "buyerId" TEXT NOT NULL,
+    "sellerId" TEXT NOT NULL,
+    "cryptoAmount" TEXT NOT NULL,
+    "fiatAmount" TEXT NOT NULL,
+    "price" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'CREATED',
+    "paymentMethod" TEXT NOT NULL,
+    "paymentDetails" TEXT,
+    "expiresAt" DATETIME NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "P2pOrder_adId_fkey" FOREIGN KEY ("adId") REFERENCES "P2pAd" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "P2pOrder_buyerId_fkey" FOREIGN KEY ("buyerId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "P2pOrder_sellerId_fkey" FOREIGN KEY ("sellerId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS "P2pMessage" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "orderId" TEXT NOT NULL,
+    "senderId" TEXT NOT NULL,
+    "content" TEXT NOT NULL,
+    "type" TEXT NOT NULL DEFAULT 'TEXT',
+    "attachmentUrl" TEXT,
+    "isRead" BOOLEAN NOT NULL DEFAULT false,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "P2pMessage_orderId_fkey" FOREIGN KEY ("orderId") REFERENCES "P2pOrder" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "P2pMessage_senderId_fkey" FOREIGN KEY ("senderId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS "P2pDispute" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "displayId" TEXT UNIQUE,
+    "orderId" TEXT NOT NULL,
+    "openerId" TEXT NOT NULL,
+    "assignedAdminId" TEXT,
+    "reason" TEXT NOT NULL,
+    "evidenceUrls" TEXT,
+    "status" TEXT NOT NULL DEFAULT 'OPEN',
+    "adminNotes" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "P2pDispute_orderId_fkey" FOREIGN KEY ("orderId") REFERENCES "P2pOrder" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "P2pDispute_openerId_fkey" FOREIGN KEY ("openerId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "P2pDispute_assignedAdminId_fkey" FOREIGN KEY ("assignedAdminId") REFERENCES "User" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS "P2pPaymentMethod" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "userId" TEXT NOT NULL,
+    "type" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "details" TEXT NOT NULL,
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    "isPrimary" BOOLEAN NOT NULL DEFAULT false,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "P2pPaymentMethod_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS "P2pFeedback" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "orderId" TEXT NOT NULL,
+    "fromUserId" TEXT NOT NULL,
+    "toUserId" TEXT NOT NULL,
+    "type" TEXT NOT NULL,
+    "comment" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "P2pFeedback_orderId_fkey" FOREIGN KEY ("orderId") REFERENCES "P2pOrder" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "P2pFeedback_fromUserId_fkey" FOREIGN KEY ("fromUserId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "P2pFeedback_toUserId_fkey" FOREIGN KEY ("toUserId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS "P2pAd_userId_status_idx" ON "P2pAd"("userId", "status");
+CREATE INDEX IF NOT EXISTS "P2pAd_type_asset_fiat_status_idx" ON "P2pAd"("type", "asset", "fiat", "status");
+CREATE INDEX IF NOT EXISTS "P2pOrder_buyerId_status_idx" ON "P2pOrder"("buyerId", "status");
+CREATE INDEX IF NOT EXISTS "P2pOrder_sellerId_status_idx" ON "P2pOrder"("sellerId", "status");
+CREATE INDEX IF NOT EXISTS "P2pOrder_adId_idx" ON "P2pOrder"("adId");
+CREATE INDEX IF NOT EXISTS "P2pMessage_orderId_createdAt_idx" ON "P2pMessage"("orderId", "createdAt");
+CREATE INDEX IF NOT EXISTS "P2pDispute_orderId_idx" ON "P2pDispute"("orderId");
+CREATE INDEX IF NOT EXISTS "P2pDispute_openerId_status_idx" ON "P2pDispute"("openerId", "status");
+CREATE INDEX IF NOT EXISTS "P2pDispute_status_idx" ON "P2pDispute"("status");
+CREATE INDEX IF NOT EXISTS "P2pPaymentMethod_userId_isActive_idx" ON "P2pPaymentMethod"("userId", "isActive");
+

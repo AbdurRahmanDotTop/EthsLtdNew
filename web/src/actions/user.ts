@@ -53,7 +53,19 @@ async function resolveUser(requestedUserId?: string) {
 // 1. KYC Application
 export async function submitKycApplication(data: {
   userId?: string;
+  documentType?: string; // PASSPORT, GOVERNMENT_ID, DRIVERS_LICENSE, RESIDENCE_PERMIT
   fullName?: string;
+  dateOfBirth?: string;
+  gender?: string;
+  nationality?: string;
+  country?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+  issuingCountry?: string;
+  issuingAuthority?: string;
+  issueDate?: string;
+  expiryDate?: string;
   idNumber: string;
   address: string;
   idFrontUrl?: string;
@@ -63,11 +75,20 @@ export async function submitKycApplication(data: {
     const user = await resolveUser(data.userId);
     if (!user) return { success: false, error: "Please log in first." };
 
-    if (!data.idNumber || !data.address) {
-      return { success: false, error: "ID Number and address are required." };
+    if (!data.idNumber?.trim() || !data.address?.trim()) {
+      return { success: false, error: "Document ID Number and Address are required." };
     }
 
-    if (!data.idFrontUrl || !data.idBackUrl) {
+    if (!data.idFrontUrl) {
+      return {
+        success: false,
+        error: "Please upload the primary document (front side or passport photo page).",
+      };
+    }
+
+    // Front & Back required unless it's a Passport where back may not be required
+    const docType = data.documentType || "GOVERNMENT_ID";
+    if (docType !== "PASSPORT" && !data.idBackUrl) {
       return {
         success: false,
         error: "Please upload both front and back photos of your ID document.",
@@ -81,25 +102,60 @@ export async function submitKycApplication(data: {
       });
     }
 
-    const application = await prisma.kycApplication.upsert({
+    // Check existing application to determine attempt count
+    const existing = await prisma.kycApplication.findUnique({
+      where: { userId: user.id },
+    });
+    const attemptCount = existing ? ((existing as any).attemptCount || 1) + 1 : 1;
+
+    const application = await (prisma.kycApplication as any).upsert({
       where: { userId: user.id },
       update: {
+        documentType: docType,
+        fullName: data.fullName?.trim() || null,
+        dateOfBirth: data.dateOfBirth?.trim() || null,
+        gender: data.gender?.trim() || null,
+        nationality: data.nationality?.trim() || null,
+        country: data.country?.trim() || null,
+        city: data.city?.trim() || null,
+        state: data.state?.trim() || null,
+        postalCode: data.postalCode?.trim() || null,
+        issuingCountry: data.issuingCountry?.trim() || null,
+        issuingAuthority: data.issuingAuthority?.trim() || null,
+        issueDate: data.issueDate?.trim() || null,
+        expiryDate: data.expiryDate?.trim() || null,
         idNumber: data.idNumber.trim(),
         address: data.address.trim(),
         idFrontUrl: data.idFrontUrl,
-        idBackUrl: data.idBackUrl,
+        idBackUrl: data.idBackUrl || null,
         status: "PENDING",
         rejectionReason: null,
+        additionalInfoRequired: null,
+        attemptCount,
         reviewedBy: null,
         reviewedAt: null,
       },
       create: {
         userId: user.id,
+        documentType: docType,
+        fullName: data.fullName?.trim() || null,
+        dateOfBirth: data.dateOfBirth?.trim() || null,
+        gender: data.gender?.trim() || null,
+        nationality: data.nationality?.trim() || null,
+        country: data.country?.trim() || null,
+        city: data.city?.trim() || null,
+        state: data.state?.trim() || null,
+        postalCode: data.postalCode?.trim() || null,
+        issuingCountry: data.issuingCountry?.trim() || null,
+        issuingAuthority: data.issuingAuthority?.trim() || null,
+        issueDate: data.issueDate?.trim() || null,
+        expiryDate: data.expiryDate?.trim() || null,
         idNumber: data.idNumber.trim(),
         address: data.address.trim(),
         idFrontUrl: data.idFrontUrl,
-        idBackUrl: data.idBackUrl,
+        idBackUrl: data.idBackUrl || null,
         status: "PENDING",
+        attemptCount: 1,
       },
     });
 
@@ -111,8 +167,16 @@ export async function submitKycApplication(data: {
       sendAdminEventNotification({
         eventType: "KYC",
         title: `KYC Submitted by ${user.email}`,
-        message: `User ${user.email} (UID: #${user.uid}) submitted identity verification documents for review.`,
-        details: { User: user.email, UID: user.uid, ID: data.idNumber.trim(), Address: data.address.trim() },
+        message: `User ${user.email} (UID: #${user.uid}) submitted ${docType} documents (Attempt #${attemptCount}) for compliance review.`,
+        details: {
+          User: user.email,
+          UID: user.uid,
+          DocumentType: docType,
+          IDNumber: data.idNumber.trim(),
+          FullName: data.fullName?.trim() || "N/A",
+          Country: data.country?.trim() || data.issuingCountry?.trim() || "N/A",
+          Address: data.address.trim(),
+        },
       }).catch((e) => console.warn("Admin KYC alert failed:", e));
     } catch (e) {
       console.warn("KYC notification dispatch error:", e);
@@ -126,13 +190,44 @@ export async function submitKycApplication(data: {
   }
 }
 
-export async function getKycStatus(userId?: string) {
+export interface KycDataRecord {
+  id: string;
+  userId: string;
+  documentType: string;
+  fullName?: string | null;
+  dateOfBirth?: string | null;
+  gender?: string | null;
+  nationality?: string | null;
+  country?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postalCode?: string | null;
+  issuingCountry?: string | null;
+  issuingAuthority?: string | null;
+  issueDate?: string | null;
+  expiryDate?: string | null;
+  idNumber: string;
+  address: string;
+  idFrontUrl?: string | null;
+  idBackUrl?: string | null;
+  status: string;
+  rejectionReason?: string | null;
+  additionalInfoRequired?: string | null;
+  adminChecklist?: string | null;
+  attemptCount: number;
+  reviewedBy?: string | null;
+  reviewedAt?: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export async function getKycStatus(userId?: string): Promise<KycDataRecord | null> {
   const user = await resolveUser(userId);
   if (!user) return null;
 
-  return prisma.kycApplication.findUnique({
+  return (await prisma.kycApplication.findUnique({
     where: { userId: user.id },
-  });
+  })) as any;
 }
 
 // 2. Deposit Request
@@ -744,10 +839,11 @@ export async function getUserAssetSummary(userId?: string) {
     const ethPrice = 2501.91;
     const usdtPrice = 1.0;
 
-    // 4. Totals = Available + On Order + On Hold
+    // 4. Totals = Available + On Order + On Hold (including any active P2P escrow)
+    const currencyUsdtEscrow = (wallets.find((w: any) => w.asset === "USDT" && w.type === "Currency") as any)?.escrowBalance ?? 0;
     const btcTotal = currencyBtcAvail + btcOnOrder + btcOnHold;
     const ethTotal = currencyEthAvail + ethOnOrder + ethOnHold;
-    const usdtTotal = currencyUsdtAvail + totalUsdtOnOrder + usdtOnHold;
+    const usdtTotal = currencyUsdtAvail + totalUsdtOnOrder + usdtOnHold + currencyUsdtEscrow;
 
     const btcValueUsd = btcTotal * btcPrice;
     const ethValueUsd = ethTotal * ethPrice;
@@ -755,6 +851,12 @@ export async function getUserAssetSummary(userId?: string) {
 
     const totalPortfolioUsd = usdtValueUsd + btcValueUsd + ethValueUsd;
     const totalPortfolioUsdt = totalPortfolioUsd;
+
+    // Funding (P2P) balances
+    const p2pUsdtWallet = wallets.find((w: any) => w.asset === "USDT" && w.type === "P2P");
+    const p2pAvailable = p2pUsdtWallet?.balance ?? 0;
+    const p2pEscrow = (p2pUsdtWallet?.escrowBalance ?? 0) + currencyUsdtEscrow;
+    const p2pTotal = p2pAvailable + p2pEscrow;
 
     return {
       uid: fullUser.uid,
@@ -764,7 +866,7 @@ export async function getUserAssetSummary(userId?: string) {
       summary: {
         availableUsdt: currencyUsdtAvail,
         onOrderUsdt: totalUsdtOnOrder,
-        onHoldUsdt: usdtOnHold,
+        onHoldUsdt: usdtOnHold + currencyUsdtEscrow,
         totalUsdt: usdtTotal,
       },
       categories: {
@@ -806,12 +908,12 @@ export async function getUserAssetSummary(userId?: string) {
               amount: usdtTotal.toFixed(4),
               available: currencyUsdtAvail.toFixed(4),
               orders: totalUsdtOnOrder.toFixed(4),
-              onHold: usdtOnHold.toFixed(4),
+              onHold: (usdtOnHold + currencyUsdtEscrow).toFixed(4),
               value: `$${usdtValueUsd.toFixed(2)} USD`,
               rawAmount: usdtTotal,
               rawAvailable: currencyUsdtAvail,
               rawOrders: totalUsdtOnOrder,
-              rawOnHold: usdtOnHold,
+              rawOnHold: usdtOnHold + currencyUsdtEscrow,
               color: "#26A17B",
             },
           ],
@@ -831,6 +933,21 @@ export async function getUserAssetSummary(userId?: string) {
           investedOnOrders: optionsInvested,
           activeOptionsCount: activeOptions.length,
           activeOptions: activeOptions,
+        },
+        funding: {
+          title: "Funding (P2P) Account",
+          totalUsdtEquivalent: p2pTotal,
+          availableUsdt: p2pAvailable,
+          escrowLockedUsdt: p2pEscrow,
+          assets: [
+            {
+              name: "USDT",
+              fullName: "TetherUS",
+              available: p2pAvailable.toFixed(4),
+              escrow: p2pEscrow.toFixed(4),
+              total: p2pTotal.toFixed(4),
+            },
+          ],
         },
       },
     };

@@ -20,6 +20,12 @@ export const users = sqliteTable('users', {
   mfaSecret: text('mfa_secret'),
   role: text('role', { enum: ['USER', 'EXPERT', 'SUPER_ADMIN', 'COMPLIANCE_ADMIN', 'SUPPORT_ADMIN'] }).notNull().default('USER'),
   isMerchant: integer('is_merchant', { mode: 'boolean' }).notNull().default(false),
+  merchantTier: text('merchant_tier').default('STANDARD'),
+  p2pTotalOrders: integer('p2p_total_orders').default(0),
+  p2pCompletedOrders: integer('p2p_completed_orders').default(0),
+  p2pCompletionRate: text('p2p_completion_rate').default('100'),
+  p2pPositiveFeedback: integer('p2p_positive_feedback').default(0),
+  p2pNegativeFeedback: integer('p2p_negative_feedback').default(0),
 });
 
 export const sessions = sqliteTable('sessions', {

@@ -24,8 +24,13 @@ import { getUserAssetSummary } from "@/actions/user";
 export default function AssetsPage() {
   const router = useRouter();
 
-  // Active Tab: "Currency Account" | "Contract Account" | "Options Account"
-  const accountTabs = ["Currency Account", "Contract Account", "Options Account"] as const;
+  // Active Tab: "Currency Account" | "Contract Account" | "Options Account" | "Funding (P2P) Account"
+  const accountTabs = [
+    "Currency Account",
+    "Contract Account",
+    "Options Account",
+    "Funding (P2P) Account",
+  ] as const;
   type TabType = (typeof accountTabs)[number];
   const [activeTab, setActiveTab] = useState<TabType>("Currency Account");
 
@@ -113,6 +118,13 @@ export default function AssetsPage() {
     activeOptions: [],
   };
 
+  const fundingInfo = assetData?.categories?.funding || {
+    totalUsdtEquivalent: 0,
+    availableUsdt: 0,
+    escrowLockedUsdt: 0,
+    assets: [],
+  };
+
   // Format currency helpers
   const mask = (val: string | number) => (hideBalances ? "••••••••" : val);
 
@@ -147,7 +159,9 @@ export default function AssetsPage() {
                 ? "Total Assets(USDT)"
                 : activeTab === "Contract Account"
                 ? "Contract Equity(USDT)"
-                : "Options Equity(USDT)"}
+                : activeTab === "Options Account"
+                ? "Options Equity(USDT)"
+                : "Funding & P2P Equity(USDT)"}
             </span>
             <button
               onClick={() => loadData(true)}
@@ -176,7 +190,9 @@ export default function AssetsPage() {
                 ? summary.totalUsdt.toFixed(4)
                 : activeTab === "Contract Account"
                 ? contractInfo.totalUsdtEquivalent.toFixed(4)
-                : optionsInfo.totalUsdtEquivalent.toFixed(4)
+                : activeTab === "Options Account"
+                ? optionsInfo.totalUsdtEquivalent.toFixed(4)
+                : fundingInfo.totalUsdtEquivalent.toFixed(4)
             )}
           </span>
         </div>
@@ -188,7 +204,9 @@ export default function AssetsPage() {
               ? summary.totalUsdt.toFixed(2)
               : activeTab === "Contract Account"
               ? contractInfo.totalUsdtEquivalent.toFixed(2)
-              : optionsInfo.totalUsdtEquivalent.toFixed(2)
+              : activeTab === "Options Account"
+              ? optionsInfo.totalUsdtEquivalent.toFixed(2)
+              : fundingInfo.totalUsdtEquivalent.toFixed(2)
           )}{" "}
           USD
         </div>
@@ -206,7 +224,9 @@ export default function AssetsPage() {
                   ? summary.availableUsdt.toFixed(2)
                   : activeTab === "Contract Account"
                   ? contractInfo.availableUsdt.toFixed(2)
-                  : optionsInfo.availableUsdt.toFixed(2)
+                  : activeTab === "Options Account"
+                  ? optionsInfo.availableUsdt.toFixed(2)
+                  : fundingInfo.availableUsdt.toFixed(2)
               )}
             </span>
           </div>
@@ -214,7 +234,7 @@ export default function AssetsPage() {
           <div className="flex flex-col border-l border-white/5 pl-2">
             <span className="text-gray-400 text-[10px] font-sans flex items-center gap-1">
               <Clock className="w-2.5 h-2.5 text-amber-400" />
-              On orders
+              {activeTab === "Funding (P2P) Account" ? "In Escrow" : "On orders"}
             </span>
             <span
               className={`font-bold truncate mt-0.5 ${
@@ -222,17 +242,22 @@ export default function AssetsPage() {
                   ? summary.onOrderUsdt
                   : activeTab === "Contract Account"
                   ? contractInfo.marginOnOrders
-                  : optionsInfo.investedOnOrders) > 0
+                  : activeTab === "Options Account"
+                  ? optionsInfo.investedOnOrders
+                  : fundingInfo.escrowLockedUsdt) > 0
                   ? "text-amber-400"
                   : "text-gray-400"
               }`}
             >
               {mask(
-                activeTab === "Currency Account"
-                  ? summary.onOrderUsdt.toFixed(2)
+                (activeTab === "Currency Account"
+                  ? summary.onOrderUsdt
                   : activeTab === "Contract Account"
-                  ? contractInfo.marginOnOrders.toFixed(2)
-                  : optionsInfo.investedOnOrders.toFixed(2)
+                  ? contractInfo.marginOnOrders
+                  : activeTab === "Options Account"
+                  ? optionsInfo.investedOnOrders
+                  : fundingInfo.escrowLockedUsdt
+                ).toFixed(2)
               )}
             </span>
           </div>
@@ -244,10 +269,12 @@ export default function AssetsPage() {
             </span>
             <span
               className={`font-bold truncate mt-0.5 ${
-                summary.onHoldUsdt > 0 ? "text-rose-400" : "text-gray-400"
+                (activeTab === "Funding (P2P) Account" ? 0 : summary.onHoldUsdt) > 0
+                  ? "text-rose-400"
+                  : "text-gray-400"
               }`}
             >
-              {mask(summary.onHoldUsdt.toFixed(2))}
+              {mask((activeTab === "Funding (P2P) Account" ? 0 : summary.onHoldUsdt).toFixed(2))}
             </span>
           </div>
         </div>
@@ -564,6 +591,80 @@ export default function AssetsPage() {
                 ))}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 4. FUNDING / P2P ACCOUNT TAB */}
+      {/* ========================================================================= */}
+      {activeTab === "Funding (P2P) Account" && (
+        <div className="p-4 space-y-4">
+          <div className="bg-[#1A1C24] p-5 rounded-2xl border border-white/5 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-bold text-white">Funding & P2P Balance</h3>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Dedicated balance for peer-to-peer advertisements, orders, and escrow security.
+                </p>
+              </div>
+              <Link
+                href="/p2p/profile"
+                className="px-3.5 py-1.5 rounded-lg bg-[#00A070] text-white text-xs font-bold hover:bg-[#00B07C] transition-colors"
+              >
+                P2P Merchant Profile
+              </Link>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-2">
+              <div className="bg-[#121212] p-4 rounded-xl border border-white/5">
+                <span className="text-gray-400 text-xs block mb-1">Available for P2P</span>
+                <span className="font-mono text-lg font-bold text-white">
+                  {mask(Number(fundingInfo.availableUsdt || 0).toFixed(2))} USDT
+                </span>
+              </div>
+
+              <div className="bg-[#121212] p-4 rounded-xl border border-white/5">
+                <span className="text-gray-400 text-xs block mb-1">Locked in Escrow</span>
+                <span className="font-mono text-lg font-bold text-amber-400">
+                  {mask(Number(fundingInfo.escrowLockedUsdt || 0).toFixed(2))} USDT
+                </span>
+              </div>
+
+              <div className="bg-[#121212] p-4 rounded-xl border border-white/5 col-span-2 sm:col-span-1">
+                <span className="text-gray-400 text-xs block mb-1">Total Equity</span>
+                <span className="font-mono text-lg font-bold text-[#00A070]">
+                  {mask(Number(fundingInfo.totalUsdtEquivalent || 0).toFixed(2))} USDT
+                </span>
+              </div>
+            </div>
+
+            <div className="pt-2 flex flex-wrap gap-3">
+              <Link
+                href="/p2p/profile"
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#00A070] hover:bg-[#00B07C] text-white text-xs font-bold shadow-md shadow-[#00A070]/20 transition-all"
+              >
+                Transfer (Spot ⇄ P2P)
+              </Link>
+              <Link
+                href="/p2p"
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white text-xs font-bold border border-white/10 transition-colors"
+              >
+                P2P Marketplace →
+              </Link>
+              <Link
+                href="/p2p/post-ad"
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white text-xs font-bold border border-white/10 transition-colors"
+              >
+                Post P2P Ad →
+              </Link>
+              <Link
+                href="/p2p/orders"
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white text-xs font-bold border border-white/10 transition-colors"
+              >
+                My Orders →
+              </Link>
+            </div>
           </div>
         </div>
       )}

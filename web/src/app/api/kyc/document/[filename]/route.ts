@@ -78,11 +78,12 @@ export async function GET(
     const contentType = mimeMap[ext] || "application/octet-stream";
 
     // 6. Return response with strict private caching headers
+    const isDownload = req.nextUrl.searchParams.get("download") === "1";
     return new NextResponse(fileBuffer, {
       status: 200,
       headers: {
         "Content-Type": contentType,
-        "Content-Disposition": `inline; filename="${safeFilename}"`,
+        "Content-Disposition": `${isDownload ? "attachment" : "inline"}; filename="${safeFilename}"`,
         "Cache-Control": "private, no-cache, no-store, must-revalidate",
         Pragma: "no-cache",
         Expires: "0",

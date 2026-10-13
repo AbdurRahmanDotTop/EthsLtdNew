@@ -44,18 +44,38 @@ model User {
   rmNotifications      RmNotification[]
   conversationsAsUser  RmConversation[]     @relation("ConversationUsers")
   conversationsAsRm    RmConversation[]     @relation("ConversationRms")
+
+  // P2P Marketplace Relations & Metrics
+  p2pTotalOrders       Int                  @default(0)
+  p2pCompletedOrders   Int                  @default(0)
+  p2pCompletionRate    String               @default("100")
+  p2pPositiveFeedback  Int                  @default(0)
+  p2pNegativeFeedback  Int                  @default(0)
+  isMerchant           Boolean              @default(false)
+  merchantTier         String               @default("STANDARD")
+  p2pAds               P2pAd[]
+  p2pOrdersAsBuyer     P2pOrder[]           @relation("BuyerOrders")
+  p2pOrdersAsSeller    P2pOrder[]           @relation("SellerOrders")
+  p2pMessagesSent      P2pMessage[]
+  p2pPaymentMethods    P2pPaymentMethod[]
+  p2pDisputesOpened    P2pDispute[]         @relation("DisputeOpener")
+  p2pDisputesAssigned  P2pDispute[]         @relation("DisputeAdmin")
+  p2pFeedbackGiven     P2pFeedback[]        @relation("FeedbackGiver")
+  p2pFeedbackReceived  P2pFeedback[]        @relation("FeedbackReceiver")
 }
 
 model Wallet {
-  id        String   @id @default(cuid())
-  userId    String
-  asset     String   // USDT, BTC, ETH, ACH, USDC
-  balance   Float    @default(0.0)
-  type      String   @default("Currency") // Currency, Contract, Options
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id            String   @id @default(cuid())
+  userId        String
+  asset         String   // USDT, BTC, ETH, ACH, USDC
+  balance       Float    @default(0.0)
+  lockedBalance Float    @default(0.0)
+  escrowBalance Float    @default(0.0)
+  type          String   @default("Currency") // Currency, Contract, Options, P2P
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
   
-  user      User     @relation(fields: [userId], references: [id])
+  user          User     @relation(fields: [userId], references: [id])
 
   @@unique([userId, asset, type])
 }
@@ -138,20 +158,36 @@ model Transaction {
 }
 
 model KycApplication {
-  id              String    @id @default(cuid())
-  userId          String    @unique
-  idNumber        String
-  address         String
-  idFrontUrl      String?
-  idBackUrl       String?
-  status          String    @default("PENDING") // PENDING, APPROVED, REJECTED
-  rejectionReason String?
-  reviewedBy      String?
-  reviewedAt      DateTime?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  id                     String    @id @default(cuid())
+  userId                 String    @unique
+  documentType           String    @default("GOVERNMENT_ID") // PASSPORT, GOVERNMENT_ID, DRIVERS_LICENSE, RESIDENCE_PERMIT
+  fullName               String?
+  dateOfBirth            String?
+  gender                 String?
+  nationality            String?
+  country                String?
+  city                   String?
+  state                  String?
+  postalCode             String?
+  issuingCountry         String?
+  issuingAuthority       String?
+  issueDate              String?
+  expiryDate             String?
+  idNumber               String
+  address                String
+  idFrontUrl             String?
+  idBackUrl              String?
+  status                 String    @default("PENDING") // PENDING, APPROVED, REJECTED, ADDITIONAL_INFO_REQUIRED
+  rejectionReason        String?
+  additionalInfoRequired String?
+  adminChecklist         String?   // JSON string of admin verification checklist items
+  attemptCount           Int       @default(1)
+  reviewedBy             String?
+  reviewedAt             DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
 
-  user            User      @relation(fields: [userId], references: [id])
+  user                   User      @relation(fields: [userId], references: [id])
 }
 
 model DepositRequest {
@@ -484,6 +520,232 @@ model RmNotification {
   createdAt DateTime @default(now())
 
   @@index([userId, isRead])
+}
+
+// -----------------------------------------------------------------------------
+// P2P MARKETPLACE MODELS
+// -----------------------------------------------------------------------------
+
+model P2pAd {
+  id                  String     @id @default(cuid())
+  displayId           String?    @unique
+  userId              String
+  user                User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type                String     // BUY, SELL
+  asset               String     // USDT, BTC, ETH
+  fiat                String     // USD, INR, EUR, GBP, AED
+  price               String     // fiat price per crypto unit
+  isFloating          Boolean    @default(false)
+  priceMargin         String?    // e.g. "1.5" for 1.5%
+  totalAmount         String     // total crypto amount
+  availableAmount     String     // remaining crypto amount
+  minLimit            String     // min fiat limit per trade
+  maxLimit            String     // max fiat limit per trade
+  paymentWindow       Int        @default(15) // minutes to complete fiat payment
+  paymentMethods      String     // JSON array of method strings/objects
+  terms               String?
+  autoReply           String?
+  countryRestrictions String?    // JSON array of country codes
+  status              String     @default("ACTIVE") // ACTIVE, PAUSED, COMPLETED, CANCELED
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+
+  orders              P2pOrder[]
+
+  @@index([userId, status])
+  @@index([type, asset, fiat, status])
+}
+
+model P2pOrder {
+  id             String        @id @default(cuid())
+  displayId      String?       @unique
+  adId           String
+  ad             P2pAd         @relation(fields: [adId], references: [id], onDelete: Cascade)
+  buyerId        String
+  buyer          User          @relation("BuyerOrders", fields: [buyerId], references: [id], onDelete: Cascade)
+  sellerId       String
+  seller         User          @relation("SellerOrders", fields: [sellerId], references: [id], onDelete: Cascade)
+  cryptoAmount   String
+  fiatAmount     String
+  price          String
+  status         String        @default("CREATED") // CREATED, PAYMENT_PENDING, BUYER_MARKED_PAID, SELLER_PAYMENT_REVIEW, COMPLETED, CANCELLED, EXPIRED, DISPUTED
+  paymentMethod  String
+  paymentDetails String?       // JSON string of payment details snapshot
+  expiresAt      DateTime
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  messages       P2pMessage[]
+  disputes       P2pDispute[]
+  feedbacks      P2pFeedback[]
+
+  @@index([buyerId, status])
+  @@index([sellerId, status])
+  @@index([adId])
+}
+
+model P2pMessage {
+  id            String    @id @default(cuid())
+  orderId       String
+  order         P2pOrder  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  senderId      String
+  sender        User      @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  content       String
+  type          String    @default("TEXT") // TEXT, IMAGE, SYSTEM
+  attachmentUrl String?
+  isRead        Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+
+  @@index([orderId, createdAt])
+}
+
+model P2pDispute {
+  id               String    @id @default(cuid())
+  displayId        String?   @unique
+  orderId          String
+  order            P2pOrder  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  openerId         String
+  opener           User      @relation("DisputeOpener", fields: [openerId], references: [id], onDelete: Cascade)
+  assignedAdminId  String?
+  assignedAdmin    User?     @relation("DisputeAdmin", fields: [assignedAdminId], references: [id])
+  reason           String
+  evidenceUrls     String?   // JSON array of image/document URLs
+  status           String    @default("OPEN") // OPEN, UNDER_REVIEW, RESOLVED_BUYER, RESOLVED_SELLER, CANCELLED
+  adminNotes       String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([orderId])
+  @@index([openerId, status])
+  @@index([status])
+}
+
+model P2pPaymentMethod {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String   // UPI, BANK_TRANSFER, PAYPAL, IMPS, PAYTM
+  name      String
+  details   String   // JSON string of details
+  isActive  Boolean  @default(true)
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, isActive])
+}
+
+model P2pFeedback {
+  id         String   @id @default(cuid())
+  orderId    String
+  order      P2pOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  fromUserId String
+  fromUser   User     @relation("FeedbackGiver", fields: [fromUserId], references: [id], onDelete: Cascade)
+  toUserId   String
+  toUser     User     @relation("FeedbackReceiver", fields: [toUserId], references: [id], onDelete: Cascade)
+  type       String   // POSITIVE, NEGATIVE
+  comment    String?
+  createdAt  DateTime @default(now())
+
+  @@index([orderId])
+  @@index([toUserId])
+}
+
+model P2pChannelType {
+  id           String   @id @default(cuid())
+  identifier   String   @unique // e.g. "BANK", "UPI", "WALLET", "CASH", "OTHER"
+  name         String   // e.g. "Bank Account / IMPS"
+  description  String?
+  icon         String?  // e.g. "Landmark", "QrCode", "Wallet", "Banknote"
+  isActive     Boolean  @default(true)
+  displayOrder Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  fields               P2pChannelField[]
+  systemPaymentMethods P2pSystemPaymentMethod[]
+
+  @@index([isActive, displayOrder])
+}
+
+model P2pChannelField {
+  id             String         @id @default(cuid())
+  channelTypeId  String
+  channelType    P2pChannelType @relation(fields: [channelTypeId], references: [id], onDelete: Cascade)
+  fieldName      String         // e.g. "accountNumber", "ifscCode", "vpaAddress"
+  fieldLabel     String         // e.g. "Bank Account Number"
+  fieldType      String         @default("TEXT") // TEXT, NUMBER, EMAIL, PHONE, TEXTAREA, DROPDOWN, RADIO, CHECKBOX, DATE
+  required       Boolean        @default(true)
+  placeholder    String?
+  helpText       String?
+  defaultValue   String?
+  options        String?        // JSON array of strings for DROPDOWN / RADIO
+  validationRule String?        // Regex or validation rule
+  minLength      Int?
+  maxLength      Int?
+  displayOrder   Int            @default(0)
+  isActive       Boolean        @default(true)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@unique([channelTypeId, fieldName])
+  @@index([channelTypeId, displayOrder])
+}
+
+model P2pSystemPaymentMethod {
+  id            String          @id @default(cuid())
+  identifier    String          @unique
+  name          String
+  channelTypeId String?
+  channelType   P2pChannelType? @relation(fields: [channelTypeId], references: [id], onDelete: SetNull)
+  type          String          @default("BANK") // BANK, UPI, WALLET, OTHER
+  currency      String          @default("ALL")  // ALL, INR, USD, EUR, etc.
+  instructions  String?
+  fields        String?         // Custom override if any
+  isActive      Boolean         @default(true)
+  displayOrder  Int             @default(0)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@index([isActive, displayOrder])
+  @@index([channelTypeId])
+}
+
+model CryptoAsset {
+  id           String   @id @default(cuid())
+  symbol       String   @unique // e.g. "USDT", "BTC", "ETH", "SOL"
+  name         String   // e.g. "Tether USD", "Bitcoin", "Ethereum"
+  iconUrl      String?
+  description  String?
+  networks     String   @default("[]") // JSON string of supported networks e.g. ["TRC20","ERC20"]
+  decimals     Int      @default(8)
+  isActive     Boolean  @default(true)
+  canDeposit   Boolean  @default(true)
+  canWithdraw  Boolean  @default(true)
+  canP2p       Boolean  @default(true)
+  displayOrder Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([isActive, displayOrder])
+  @@index([canP2p])
+}
+
+model FiatCurrency {
+  id           String   @id @default(cuid())
+  code         String   @unique // e.g. "INR", "USD", "EUR", "AED"
+  name         String   // e.g. "Indian Rupee", "US Dollar"
+  symbol       String   // e.g. "₹", "$", "€", "د.إ"
+  country      String?  // e.g. "India", "United States"
+  decimals     Int      @default(2)
+  isActive     Boolean  @default(true)
+  canP2p       Boolean  @default(true)
+  displayOrder Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([isActive, displayOrder])
+  @@index([canP2p])
 }
 
 

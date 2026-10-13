@@ -55,3 +55,11 @@ Thumbs.db
 .devin/
 scratch/
 tsc_output.txt
+
+# Uploaded media and test KYC files
+web/storage/kyc/*
+!web/storage/kyc/.gitkeep
+
+# Large database dumps
+private/backups/
+

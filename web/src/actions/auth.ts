@@ -37,6 +37,19 @@ export async function loginUser(formData: { email: string; password: string }) {
       return { success: false, error: "Invalid email or password." };
     }
 
+    // Transparently upgrade legacy Cloudflare SHA-256 hash to modern bcrypt
+    if (user.passwordHash && user.passwordHash.length === 64) {
+      try {
+        const modernHash = await hashPassword(password);
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { passwordHash: modernHash },
+        });
+      } catch (err) {
+        console.error("Non-fatal: Failed to auto-upgrade password hash", err);
+      }
+    }
+
     // Set authenticated session cookie
     await setAuthCookie({
       userId: user.id,

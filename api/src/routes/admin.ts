@@ -1,10 +1,10 @@
 import { Hono } from 'hono';
 import Decimal from 'decimal.js';
-import { eq, desc, sql, and } from 'drizzle-orm';
+import { eq, desc, sql, and, gte, lte } from 'drizzle-orm';
 import { getFeeConfig, calculateFee } from '../services/fees';
 import { generateBusinessId } from '../services/id-generator';
 import { Bindings, Variables } from '../db';
-import { users, kycProfiles, markets, payment_methods, wallets, walletTransactions, ledgerAccounts, ledgerEntries, bankTransfers, bank_accounts, real_manual_deposits, orders, positions, binaryOptions, tickets, ticketMessages, notifications, cregisDeposits, cregisPayouts, sessions, expertProfiles } from 'database';
+import { users, kycProfiles, markets, payment_methods, wallets, walletTransactions, ledgerAccounts, ledgerEntries, bankTransfers, bank_accounts, real_manual_deposits, orders, positions, binaryOptions, tickets, ticketMessages, notifications, cregisDeposits, cregisPayouts, sessions, expertProfiles, p2pAds, p2pOrders, p2pMessages, p2pDisputes, p2pPaymentMethods } from 'database';
 import { jwtMiddleware } from '../middleware/jwt';
 
 export const adminRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
@@ -1860,5 +1860,283 @@ adminRoutes.get('/transactions', async (c) => {
   } catch (error) {
     console.error('Fetch Admin Transactions Error:', error);
     return c.json({ success: false, error: 'Failed to fetch transactions' }, 500);
+  }
+});
+
+// ==========================================
+// P2P ADMIN ENDPOINTS
+// ==========================================
+
+// GET /api/v1/admin/stats/p2p
+adminRoutes.get('/stats/p2p', async (c) => {
+  const db = c.get('db');
+  try {
+    const { startDate, endDate } = c.req.query();
+    
+    const orderConditions: any[] = [];
+    if (startDate) orderConditions.push(gte(p2pOrders.createdAt, new Date(startDate)));
+    if (endDate) orderConditions.push(lte(p2pOrders.createdAt, new Date(endDate)));
+    const orderWhere = orderConditions.length > 0 ? and(...orderConditions) : undefined;
+
+    const ordersQuery = db.select({
+      status: p2pOrders.status,
+      count: sql<number>`count(*)`,
+      volume: sql<number>`sum(CAST(${p2pOrders.cryptoAmount} AS REAL))`
+    }).from(p2pOrders).groupBy(p2pOrders.status);
+    
+    const ordersData = orderWhere ? await ordersQuery.where(orderWhere) : await ordersQuery;
+
+    const orderStats = {
+      totalOrders: 0,
+      totalVolume: 0,
+      byStatus: {} as Record<string, { count: number; volume: number }>
+    };
+
+    ordersData.forEach((row: any) => {
+      orderStats.totalOrders += row.count;
+      if (row.status === 'COMPLETED') {
+        orderStats.totalVolume += row.volume || 0;
+      }
+      orderStats.byStatus[row.status] = { count: row.count, volume: row.volume || 0 };
+    });
+
+    const buySellQuery = db.select({
+      type: p2pAds.type,
+      volume: sql<number>`sum(CAST(${p2pOrders.cryptoAmount} AS REAL))`
+    }).from(p2pOrders)
+    .leftJoin(p2pAds, eq(p2pOrders.adId, p2pAds.id))
+    .where(
+      orderConditions.length > 0
+        ? and(...orderConditions, eq(p2pOrders.status, 'COMPLETED'))
+        : eq(p2pOrders.status, 'COMPLETED')
+    )
+    .groupBy(p2pAds.type);
+
+    const buySellVolume = { BUY: 0, SELL: 0 };
+    const buySellData = await buySellQuery;
+    buySellData.forEach((row: any) => {
+      if (row.type) buySellVolume[row.type as 'BUY' | 'SELL'] = row.volume || 0;
+    });
+
+    const [{ activeAds }] = await db.select({ activeAds: sql<number>`count(*)` })
+      .from(p2pAds)
+      .where(eq(p2pAds.status, 'ACTIVE'));
+
+    const [{ activeMerchants }] = await db.select({ activeMerchants: sql<number>`count(DISTINCT user_id)` })
+      .from(p2pAds)
+      .where(eq(p2pAds.status, 'ACTIVE'));
+
+    const disputeConditions: any[] = [];
+    if (startDate) disputeConditions.push(gte(p2pDisputes.createdAt, new Date(startDate)));
+    if (endDate) disputeConditions.push(lte(p2pDisputes.createdAt, new Date(endDate)));
+    const disputeWhere = disputeConditions.length > 0 ? and(...disputeConditions) : undefined;
+
+    const disputesQuery = db.select({
+      status: p2pDisputes.status,
+      count: sql<number>`count(*)`
+    }).from(p2pDisputes).groupBy(p2pDisputes.status);
+
+    const disputesData = disputeWhere ? await disputesQuery.where(disputeWhere) : await disputesQuery;
+
+    const disputeStats = { total: 0, OPEN: 0, RESOLVED: 0, CLOSED: 0 };
+    disputesData.forEach((row: any) => {
+      disputeStats.total += row.count;
+      if (row.status in disputeStats) disputeStats[row.status as keyof typeof disputeStats] = row.count;
+    });
+
+    const [{ totalEscrow }] = await db.select({
+      totalEscrow: sql<number>`sum(CAST(escrow_balance AS REAL))`
+    }).from(wallets);
+
+    const recentOrders = await db.select({
+      id: p2pOrders.displayId,
+      cryptoAmount: p2pOrders.cryptoAmount,
+      fiatAmount: p2pOrders.fiatAmount,
+      status: p2pOrders.status,
+      createdAt: p2pOrders.createdAt,
+      asset: p2pAds.asset,
+      fiat: p2pAds.fiat
+    }).from(p2pOrders)
+    .leftJoin(p2pAds, eq(p2pOrders.adId, p2pAds.id))
+    .orderBy(desc(p2pOrders.createdAt))
+    .limit(10);
+
+    return c.json({
+      success: true,
+      data: {
+        orderStats,
+        buySellVolume,
+        activeAds: activeAds || 0,
+        activeMerchants: activeMerchants || 0,
+        disputeStats,
+        totalEscrow: totalEscrow || 0,
+        recentOrders
+      }
+    });
+  } catch (error) {
+    console.error("P2P Admin Stats error:", error);
+    return c.json({ success: false, error: 'Failed to fetch P2P statistics' }, 500);
+  }
+});
+
+// GET /api/v1/admin/p2p/orders
+adminRoutes.get('/p2p/orders', async (c) => {
+  const db = c.get('db');
+  try {
+    const ordersList = await db.select({
+      id: p2pOrders.id,
+      displayId: p2pOrders.displayId,
+      cryptoAmount: p2pOrders.cryptoAmount,
+      fiatAmount: p2pOrders.fiatAmount,
+      price: p2pOrders.price,
+      status: p2pOrders.status,
+      paymentMethod: p2pOrders.paymentMethod,
+      createdAt: p2pOrders.createdAt,
+      expiresAt: p2pOrders.expiresAt,
+      asset: p2pAds.asset,
+      fiat: p2pAds.fiat,
+      buyerId: p2pOrders.buyerId,
+      sellerId: p2pOrders.sellerId,
+    })
+    .from(p2pOrders)
+    .leftJoin(p2pAds, eq(p2pOrders.adId, p2pAds.id))
+    .orderBy(desc(p2pOrders.createdAt))
+    .limit(100)
+    .all();
+
+    // Fetch buyer and seller emails safely
+    const allUsers = await db.select({ id: users.id, email: users.email }).from(users).all();
+    const userMap = new Map(allUsers.map(u => [u.id, u.email]));
+
+    const enriched = ordersList.map(o => ({
+      ...o,
+      buyerEmail: userMap.get(o.buyerId) || 'Unknown',
+      sellerEmail: userMap.get(o.sellerId) || 'Unknown'
+    }));
+
+    return c.json({ success: true, data: enriched });
+  } catch (error) {
+    console.error("Fetch Admin P2P Orders error:", error);
+    return c.json({ success: false, error: 'Failed to fetch P2P orders' }, 500);
+  }
+});
+
+// GET /api/v1/admin/p2p/disputes
+adminRoutes.get('/p2p/disputes', async (c) => {
+  const db = c.get('db');
+  try {
+    const disputesList = await db.select({
+      id: p2pDisputes.id,
+      displayId: p2pDisputes.displayId,
+      orderId: p2pDisputes.orderId,
+      openerId: p2pDisputes.openerId,
+      reason: p2pDisputes.reason,
+      evidenceUrls: p2pDisputes.evidenceUrls,
+      status: p2pDisputes.status,
+      adminNotes: p2pDisputes.adminNotes,
+      createdAt: p2pDisputes.createdAt,
+      orderStatus: p2pOrders.status,
+      orderDisplayId: p2pOrders.displayId,
+      cryptoAmount: p2pOrders.cryptoAmount,
+      fiatAmount: p2pOrders.fiatAmount,
+      buyerId: p2pOrders.buyerId,
+      sellerId: p2pOrders.sellerId,
+      asset: p2pAds.asset,
+      fiat: p2pAds.fiat
+    })
+    .from(p2pDisputes)
+    .leftJoin(p2pOrders, eq(p2pDisputes.orderId, p2pOrders.id))
+    .leftJoin(p2pAds, eq(p2pOrders.adId, p2pAds.id))
+    .orderBy(desc(p2pDisputes.createdAt))
+    .all();
+
+    const allUsers = await db.select({ id: users.id, email: users.email }).from(users).all();
+    const userMap = new Map(allUsers.map(u => [u.id, u.email]));
+
+    const enriched = disputesList.map(d => ({
+      ...d,
+      buyerEmail: userMap.get(d.buyerId || '') || 'Unknown',
+      sellerEmail: userMap.get(d.sellerId || '') || 'Unknown',
+      openerEmail: userMap.get(d.openerId) || 'Unknown'
+    }));
+
+    return c.json({ success: true, data: enriched });
+  } catch (error) {
+    console.error("Fetch Admin P2P Disputes error:", error);
+    return c.json({ success: false, error: 'Failed to fetch disputes' }, 500);
+  }
+});
+
+// POST /api/v1/admin/p2p/disputes/:id/resolve
+adminRoutes.post('/p2p/disputes/:id/resolve', async (c) => {
+  const db = c.get('db');
+  const admin = c.get('user');
+  const disputeId = c.req.param('id');
+  const { resolution, notes } = await c.req.json(); // resolution: 'RELEASE_TO_BUYER' | 'REFUND_TO_SELLER'
+
+  try {
+    const dispute = await db.select().from(p2pDisputes).where(eq(p2pDisputes.id, disputeId)).get();
+    if (!dispute || dispute.status !== 'OPEN') {
+      return c.json({ success: false, error: 'Dispute is not open for resolution' }, 400);
+    }
+
+    const order = await db.select().from(p2pOrders).where(eq(p2pOrders.id, dispute.orderId)).get();
+    if (!order) return c.json({ success: false, error: 'Associated order not found' }, 404);
+
+    const ad = await db.select().from(p2pAds).where(eq(p2pAds.id, order.adId)).get();
+    if (!ad) return c.json({ success: false, error: 'Associated ad not found' }, 404);
+
+    const now = new Date();
+    const cryptoAmount = new Decimal(order.cryptoAmount);
+
+    if (resolution === 'RELEASE_TO_BUYER') {
+      // Release escrow to buyer
+      const sellerWallet = await db.select().from(wallets).where(and(eq(wallets.userId, order.sellerId), eq(wallets.assetSymbol, ad.asset))).get();
+      if (sellerWallet) {
+        const finalEscrow = new Decimal(sellerWallet.escrowBalance || '0').minus(cryptoAmount).toString();
+        await db.update(wallets).set({ escrowBalance: finalEscrow, updatedAt: now }).where(eq(wallets.id, sellerWallet.id)).run();
+      }
+
+      const buyerWallet = await db.select().from(wallets).where(and(eq(wallets.userId, order.buyerId), eq(wallets.assetSymbol, ad.asset))).get();
+      if (buyerWallet) {
+        const finalBalance = new Decimal(buyerWallet.balance).plus(cryptoAmount).toString();
+        await db.update(wallets).set({ balance: finalBalance, updatedAt: now }).where(eq(wallets.id, buyerWallet.id)).run();
+      } else {
+        await db.insert(wallets).values({
+          id: crypto.randomUUID(),
+          userId: order.buyerId,
+          assetSymbol: ad.asset,
+          balance: cryptoAmount.toString(),
+          lockedBalance: '0',
+          escrowBalance: '0',
+          createdAt: now,
+          updatedAt: now,
+        }).run();
+      }
+
+      await db.update(p2pOrders).set({ status: 'COMPLETED', updatedAt: now }).where(eq(p2pOrders.id, order.id)).run();
+      await db.update(p2pDisputes).set({ status: 'RESOLVED_BUYER', adminNotes: notes, assignedAdminId: admin.id, updatedAt: now }).where(eq(p2pDisputes.id, disputeId)).run();
+    } else if (resolution === 'REFUND_TO_SELLER') {
+      // Refund escrow to seller
+      const sellerWallet = await db.select().from(wallets).where(and(eq(wallets.userId, order.sellerId), eq(wallets.assetSymbol, ad.asset))).get();
+      if (sellerWallet) {
+        const finalBalance = new Decimal(sellerWallet.balance).plus(cryptoAmount).toString();
+        const finalEscrow = new Decimal(sellerWallet.escrowBalance || '0').minus(cryptoAmount).toString();
+        await db.update(wallets).set({ balance: finalBalance, escrowBalance: finalEscrow, updatedAt: now }).where(eq(wallets.id, sellerWallet.id)).run();
+      }
+
+      const newAvailable = new Decimal(ad.availableAmount).plus(cryptoAmount).toString();
+      await db.update(p2pAds).set({ availableAmount: newAvailable, updatedAt: now }).where(eq(p2pAds.id, ad.id)).run();
+
+      await db.update(p2pOrders).set({ status: 'CANCELLED', updatedAt: now }).where(eq(p2pOrders.id, order.id)).run();
+      await db.update(p2pDisputes).set({ status: 'RESOLVED_SELLER', adminNotes: notes, assignedAdminId: admin.id, updatedAt: now }).where(eq(p2pDisputes.id, disputeId)).run();
+    } else {
+      return c.json({ success: false, error: 'Invalid resolution outcome' }, 400);
+    }
+
+    return c.json({ success: true });
+  } catch (error) {
+    console.error("Resolve Dispute error:", error);
+    return c.json({ success: false, error: 'Failed to resolve dispute' }, 500);
   }
 });

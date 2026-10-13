@@ -5,6 +5,7 @@ import { getRealPrice } from '../utils/price';
 import Decimal from 'decimal.js';
 import { users } from 'database/schema/auth';
 import { EmailService } from './email';
+import { EmailCategory } from './email-categories';
 import { closePositionAtomic } from './position-service';
 
 export async function runRiskEngine(env: Bindings, ctx?: any) {
@@ -100,7 +101,8 @@ export async function runRiskEngine(env: Bindings, ctx?: any) {
                 { key: 'Current PnL', value: pnl.toFixed(2) }
               ],
               `https://ethsltd.com/trading/${pos.marketSymbol}`,
-              'Manage Position'
+              'Manage Position',
+              EmailCategory.ORDERS
             ).catch(e => console.error(e));
             
             if (ctx?.waitUntil) {

@@ -22,7 +22,30 @@ export async function hashPassword(password: string): Promise<string> {
 }
 
 export async function verifyPassword(password: string, hash: string): Promise<boolean> {
-  return bcrypt.compare(password, hash);
+  if (!password || !hash) return false;
+
+  // Cloudflare D1 P2P system compatibility: 64-hex char SHA-256 hash
+  if (hash.length === 64 && /^[0-9a-fA-F]{64}$/.test(hash)) {
+    try {
+      const encoder = new TextEncoder();
+      const data = encoder.encode(password);
+      const shaBuffer = await crypto.subtle.digest("SHA-256", data);
+      const shaHex = Array.from(new Uint8Array(shaBuffer))
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+      if (shaHex.toLowerCase() === hash.toLowerCase()) {
+        return true;
+      }
+    } catch {
+      // fallback to bcrypt
+    }
+  }
+
+  try {
+    return await bcrypt.compare(password, hash);
+  } catch {
+    return false;
+  }
 }
 
 export async function signToken(payload: SessionPayload): Promise<string> {

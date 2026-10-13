@@ -76,7 +76,7 @@ export function Header() {
     { name: "Home", href: "/" },
     { name: "Trade", href: "/trade" },
     { name: "Option", href: "/options" },
-    { name: "P2P", href: "https://p2p.ethsltd.com/", external: true },
+    { name: "P2P", href: "/p2p" },
     { name: "Advisory", href: "/relationship-managers" },
     { name: "Assets", href: "/assets" },
     { name: "Trust", href: "/trust" },

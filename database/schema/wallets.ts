@@ -8,6 +8,7 @@ export const wallets = sqliteTable('wallets', {
   assetSymbol: text('asset_symbol').notNull(),
   balance: text('balance').notNull().default('0'), // stored as string to maintain precision
   lockedBalance: text('locked_balance').notNull().default('0'), // locked for spot/margin trading
+  escrowBalance: text('escrow_balance').notNull().default('0'), // locked exclusively for P2P and escrows
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 });
@@ -16,7 +17,7 @@ export const walletTransactions = sqliteTable('wallet_transactions', {
   id: text('id').primaryKey(),
   displayId: text('display_id').unique(),
   userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
-  type: text('type', { enum: ['DEPOSIT', 'WITHDRAWAL', 'TRADE', 'TRANSFER', 'FEE', 'REWARD', 'ADJUSTMENT', 'CONVERSION', 'EXPERT_SERVICE', 'TRADING_CREDIT', 'TRADING_DEBIT'] }).notNull(),
+  type: text('type', { enum: ['DEPOSIT', 'WITHDRAWAL', 'TRADE', 'P2P', 'TRANSFER', 'FEE', 'REWARD', 'ADJUSTMENT', 'CONVERSION', 'EXPERT_SERVICE', 'TRADING_CREDIT', 'TRADING_DEBIT'] }).notNull(),
   assetSymbol: text('asset_symbol').notNull(),
   amount: text('amount').notNull(),
   fee: text('fee').notNull().default('0'),

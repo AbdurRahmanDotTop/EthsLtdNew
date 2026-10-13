@@ -16,13 +16,13 @@ export function BottomNavigation() {
     { name: "Home", href: "/", icon: Home },
     { name: "Trade", href: "/trade", icon: LineChart },
     { name: "Option", href: "/options", icon: Activity },
-    { name: "P2P", href: "https://p2p.ethsltd.com/", icon: ArrowLeftRight, external: true },
+    { name: "P2P", href: "/p2p", icon: ArrowLeftRight },
     { name: "Trust", href: "/trust", icon: Shield },
     { name: "Assets", href: "/assets", icon: Wallet },
   ];
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-50 flex items-center justify-around border-t border-white/5 bg-[#121212] px-1 sm:px-2 py-2 pb-[max(env(safe-area-inset-bottom),8px)]">
+    <div className="fixed bottom-0 left-0 right-0 z-40 flex items-center justify-around border-t border-white/5 bg-[#121212] px-1 sm:px-2 py-2 pb-[max(env(safe-area-inset-bottom),8px)]">
       {navItems.map((item) => {
         const Icon = item.icon;
         const isActive = pathname === item.href || (item.href !== "/" && pathname?.startsWith(`${item.href}/`));

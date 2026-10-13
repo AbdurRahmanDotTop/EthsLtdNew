@@ -1,9 +1,19 @@
 import nodemailer from "nodemailer";
 import prisma from "@/lib/prisma";
+import {
+  EmailCategory,
+  resolveEmailSenderName,
+  getCategoryForEventType,
+  FIAT_CURRENCIES,
+  formatFromHeader,
+} from "./email-categories";
+
+export { EmailCategory, resolveEmailSenderName, getCategoryForEventType, formatFromHeader };
 
 export interface SendEmailOptions {
   to: string;
   subject: string;
+  category?: EmailCategory;
   eventType:
     | "WELCOME"
     | "RESET_PASSWORD"
@@ -13,11 +23,20 @@ export interface SendEmailOptions {
     | "DEPOSIT_STATUS"
     | "WITHDRAWAL_STATUS"
     | "KYC_STATUS"
+    | "ORDER_EXECUTION"
+    | "P2P_ORDER_STATUS"
     | "ADMIN_ALERT"
-    | "TEST_EMAIL";
+    | "TEST_EMAIL"
+    | string;
   html: string;
   text?: string;
   providerOverrideId?: string;
+  metadata?: {
+    asset?: string;
+    isFiat?: boolean;
+    role?: string;
+    [key: string]: any;
+  };
 }
 
 export interface EmailSendResult {
@@ -200,7 +219,11 @@ async function sendViaSmtp(
  * Core sendEmail dispatcher with database logging and error protection
  */
 export async function sendEmail(options: SendEmailOptions): Promise<EmailSendResult> {
-  const { to, subject, eventType, html, text, providerOverrideId } = options;
+  const { to, subject, eventType, html, text, providerOverrideId, category, metadata } = options;
+
+  // Resolve institutional email category and consistent display sender name
+  const effectiveCategory = category || getCategoryForEventType(eventType, metadata);
+  const fromName = resolveEmailSenderName(effectiveCategory);
 
   let config: Awaited<ReturnType<typeof getActiveEmailConfig>> = null;
   try {
@@ -211,7 +234,7 @@ export async function sendEmail(options: SendEmailOptions): Promise<EmailSendRes
 
   if (!config) {
     const errorMsg = "No active email provider configured in Admin Email Settings or ENV.";
-    console.warn(`[ETHSLTD Email] Skipped '${eventType}' to ${to}: ${errorMsg}`);
+    console.warn(`[ETHSLTD Email] Skipped '${eventType}' [Category: ${effectiveCategory}, Sender: "${fromName}"] to ${to}: ${errorMsg}`);
     
     // Log failure
     try {
@@ -220,14 +243,14 @@ export async function sendEmail(options: SendEmailOptions): Promise<EmailSendRes
           recipient: to,
           subject,
           eventType,
-          provider: "NONE",
+          provider: `NONE [${fromName}]`,
           status: "FAILED",
           errorMessage: errorMsg,
         },
       });
     } catch {}
 
-    return { success: false, error: errorMsg, providerUsed: "NONE" };
+    return { success: false, error: errorMsg, providerUsed: `NONE [${fromName}]` };
   }
 
   let result: { success: boolean; messageId?: string; error?: string } = {
@@ -236,13 +259,14 @@ export async function sendEmail(options: SendEmailOptions): Promise<EmailSendRes
   };
 
   const providerType = config.provider || "SMTP";
+  const fromEmail = config.fromEmail || process.env.EMAIL_FROM || "support@ethsltd.com";
 
   try {
     if (providerType === "BREVO" && config.apiKey) {
       result = await sendViaBrevoApi(
         config.apiKey,
-        config.fromEmail || "support@ethsltd.com",
-        config.fromName || "ETHSLTD Security",
+        fromEmail,
+        fromName,
         to,
         subject,
         html,
@@ -261,8 +285,8 @@ export async function sendEmail(options: SendEmailOptions): Promise<EmailSendRes
         encryption,
         config.username,
         config.password,
-        config.fromEmail || "support@ethsltd.com",
-        config.fromName || "ETHSLTD Security",
+        fromEmail,
+        fromName,
         to,
         subject,
         html,
@@ -282,7 +306,7 @@ export async function sendEmail(options: SendEmailOptions): Promise<EmailSendRes
         recipient: to,
         subject,
         eventType,
-        provider: `${providerType} (${config.name || "Default"})`,
+        provider: `${providerType} [${fromName}] (${config.name || "Default"})`,
         status: result.success ? "SENT" : "FAILED",
         errorMessage: result.error || null,
         messageId: result.messageId || null,
@@ -294,7 +318,7 @@ export async function sendEmail(options: SendEmailOptions): Promise<EmailSendRes
 
   return {
     ...result,
-    providerUsed: `${providerType} - ${config.name || "Default"}`,
+    providerUsed: `${providerType} [${fromName}] - ${config.name || "Default"}`,
   };
 }
 
@@ -407,6 +431,7 @@ export async function sendWelcomeNotification(user: { email: string; name?: stri
     to: user.email,
     subject: `Welcome to ETHSLTD [UID: #${user.uid}]`,
     eventType: "WELCOME",
+    category: EmailCategory.SECURITY,
     html,
   });
 }
@@ -434,6 +459,7 @@ export async function sendPasswordResetNotification(data: { email: string; otpCo
     to: data.email,
     subject: `Password Reset Code: ${data.otpCode} - ETHSLTD Security`,
     eventType: "RESET_PASSWORD",
+    category: EmailCategory.SECURITY,
     html,
   });
 }
@@ -461,6 +487,7 @@ export async function sendPinResetNotification(data: { email: string; otpCode: s
     to: data.email,
     subject: `Transaction PIN Recovery Code: ${data.otpCode} - ETHSLTD`,
     eventType: "RESET_PIN",
+    category: EmailCategory.SECURITY,
     html,
   });
 }
@@ -484,6 +511,7 @@ export async function sendPasswordChangedNotification(data: { email: string }) {
     to: data.email,
     subject: `Security Alert: Login Password Changed - ETHSLTD`,
     eventType: "PASSWORD_CHANGED",
+    category: EmailCategory.SECURITY,
     html,
   });
 }
@@ -507,6 +535,7 @@ export async function sendPinChangedNotification(data: { email: string }) {
     to: data.email,
     subject: `Security Alert: Transaction PIN Changed - ETHSLTD`,
     eventType: "PIN_CHANGED",
+    category: EmailCategory.SECURITY,
     html,
   });
 }
@@ -518,10 +547,13 @@ export async function sendDepositNotification(data: {
   status: "SUBMITTED" | "APPROVED" | "REJECTED";
   referenceNumber?: string;
   reason?: string;
+  category?: EmailCategory;
 }) {
   const isApproved = data.status === "APPROVED";
   const isRejected = data.status === "REJECTED";
   const statusColor = isApproved ? "#10B981" : isRejected ? "#EF4444" : "#F59E0B";
+  const isFiat = FIAT_CURRENCIES.has((data.asset || "").toUpperCase());
+  const category = data.category || (isFiat ? EmailCategory.PAYMENTS : EmailCategory.WALLET);
 
   const html = buildEmailTemplate({
     title: `Deposit Update: ${data.status}`,
@@ -546,6 +578,8 @@ export async function sendDepositNotification(data: {
     to: data.email,
     subject: `Deposit ${data.status}: ${data.amount} ${data.asset} - ETHSLTD`,
     eventType: "DEPOSIT_STATUS",
+    category,
+    metadata: { asset: data.asset, isFiat },
     html,
   });
 }
@@ -557,10 +591,13 @@ export async function sendWithdrawalNotification(data: {
   status: "SUBMITTED" | "APPROVED" | "REJECTED";
   receiveAmount?: number;
   reason?: string;
+  category?: EmailCategory;
 }) {
   const isApproved = data.status === "APPROVED";
   const isRejected = data.status === "REJECTED";
   const statusColor = isApproved ? "#10B981" : isRejected ? "#EF4444" : "#F59E0B";
+  const isFiat = FIAT_CURRENCIES.has((data.asset || "").toUpperCase()) || Boolean(data.receiveAmount);
+  const category = data.category || (isFiat ? EmailCategory.PAYMENTS : EmailCategory.WALLET);
 
   const html = buildEmailTemplate({
     title: `Withdrawal Update: ${data.status}`,
@@ -573,7 +610,7 @@ export async function sendWithdrawalNotification(data: {
         <p style="margin: 0 0 6px 0;"><strong>Status:</strong> <span style="color: ${statusColor}; font-weight: 700;">${data.status}</span></p>
         ${data.reason ? `<p style="margin: 0; font-size: 13px; color: #EF4444;"><strong>Reason:</strong> ${data.reason}</p>` : ""}
       </div>
-      <p style="font-size: 13px; color: #9CA3AF;">${isApproved ? "Funds have been dispatched to your bank card/destination." : isRejected ? "The withdrawal request was rejected and funds have been released back to your available balance." : "Your request is currently awaiting admin authorization."}</p>
+      <p style="font-size: 13px; color: #9CA3AF;">${isApproved ? "Funds have been dispatched to your destination." : isRejected ? "The withdrawal request was rejected and funds have been released back to your available balance." : "Your request is currently awaiting admin authorization."}</p>
     `,
     callToAction: {
       text: "View Transaction History",
@@ -585,39 +622,54 @@ export async function sendWithdrawalNotification(data: {
     to: data.email,
     subject: `Withdrawal ${data.status}: ${data.amount} ${data.asset} - ETHSLTD`,
     eventType: "WITHDRAWAL_STATUS",
+    category,
+    metadata: { asset: data.asset, isFiat },
     html,
   });
 }
 
 export async function sendKycNotification(data: {
   email: string;
-  status: "APPROVED" | "REJECTED";
+  status: "APPROVED" | "REJECTED" | "ADDITIONAL_INFO_REQUIRED";
   reason?: string;
 }) {
   const isApproved = data.status === "APPROVED";
-  const statusColor = isApproved ? "#10B981" : "#EF4444";
+  const isPendingInfo = data.status === "ADDITIONAL_INFO_REQUIRED";
+  const statusColor = isApproved ? "#10B981" : isPendingInfo ? "#F59E0B" : "#EF4444";
+  const displayStatus = isApproved
+    ? "APPROVED"
+    : isPendingInfo
+    ? "ADDITIONAL INFO REQUIRED"
+    : "REJECTED";
 
   const html = buildEmailTemplate({
-    title: `KYC Verification: ${data.status}`,
-    preheader: `Your Identity Verification is ${data.status.toLowerCase()}`,
+    title: `KYC Verification: ${displayStatus}`,
+    preheader: `Your Identity Verification status has been updated: ${displayStatus}`,
     contentHtml: `
       <p>Your KYC (Know Your Customer) verification application has been reviewed by compliance.</p>
       <div style="background-color: #12141C; padding: 18px; border-radius: 8px; margin: 16px 0; border-left: 4px solid ${statusColor};">
-        <p style="margin: 0 0 6px 0;"><strong>Result:</strong> <span style="color: ${statusColor}; font-weight: 700;">${data.status}</span></p>
-        ${data.reason ? `<p style="margin: 0; font-size: 13px; color: #EF4444;"><strong>Reason:</strong> ${data.reason}</p>` : ""}
+        <p style="margin: 0 0 6px 0;"><strong>Result:</strong> <span style="color: ${statusColor}; font-weight: 700;">${displayStatus}</span></p>
+        ${data.reason ? `<p style="margin: 0; font-size: 13px; color: ${statusColor};"><strong>Notes / Instructions:</strong> ${data.reason}</p>` : ""}
       </div>
-      <p style="font-size: 13px; color: #9CA3AF;">${isApproved ? "Your account now has verified trader status with unlocked trading and withdrawal limits." : "You may resubmit your identity documents with clearer photos and matching information."}</p>
+      <p style="font-size: 13px; color: #9CA3AF;">${
+        isApproved
+          ? "Your account now has verified trader status with unlocked trading and withdrawal limits."
+          : isPendingInfo
+          ? "Please review compliance remarks and provide the requested document or detail to complete your verification."
+          : "You may resubmit your identity documents with clearer photos and matching information."
+      }</p>
     `,
     callToAction: {
-      text: isApproved ? "Start Trading" : "Resubmit KYC",
+      text: isApproved ? "Start Trading" : isPendingInfo ? "Provide Documents" : "Resubmit KYC",
       url: process.env.NEXT_PUBLIC_APP_URL ? `${process.env.NEXT_PUBLIC_APP_URL}/profile/kyc` : "http://localhost:3000/profile/kyc",
     },
   });
 
   return sendEmail({
     to: data.email,
-    subject: `KYC Identity Verification ${data.status} - ETHSLTD`,
+    subject: `KYC Identity Verification ${displayStatus} - ETHSLTD`,
     eventType: "KYC_STATUS",
+    category: EmailCategory.VERIFICATION,
     html,
   });
 }
@@ -677,6 +729,7 @@ export async function sendAdminEventNotification(data: {
           to,
           subject: `[ADMIN] ${data.title} - ETHSLTD`,
           eventType: "ADMIN_ALERT",
+          category: EmailCategory.ADMIN_ALERTS,
           html,
         })
       )
@@ -713,8 +766,369 @@ export async function sendTestEmail(toEmail: string, configId?: string) {
     to: toEmail,
     subject: `[TEST EMAIL] Outbound Delivery Verification - ETHSLTD`,
     eventType: "TEST_EMAIL",
+    category: EmailCategory.ADMIN_ALERTS,
     html,
     providerOverrideId: configId,
   });
 }
+
+export async function sendOrderExecutionNotification(data: {
+  email: string;
+  orderId: string;
+  symbol: string;
+  category?: string;
+  type: string;
+  amount: number;
+  price: number;
+  status: string;
+}) {
+  const isBuy = data.type.toUpperCase().includes("BUY") || data.type.toUpperCase().includes("CALL");
+  const typeColor = isBuy ? "#10B981" : "#EF4444";
+
+  const html = buildEmailTemplate({
+    title: `Order Executed: ${data.symbol}`,
+    preheader: `${data.type} ${data.amount} ${data.symbol} @ ${data.price} has been executed`,
+    contentHtml: `
+      <p>Your trading order has been successfully executed on ETHSLTD platform.</p>
+      <div style="background-color: #12141C; padding: 18px; border-radius: 8px; margin: 16px 0; border-left: 4px solid ${typeColor};">
+        <p style="margin: 0 0 6px 0;"><strong>Symbol:</strong> ${data.symbol}</p>
+        <p style="margin: 0 0 6px 0;"><strong>Type:</strong> <span style="color: ${typeColor}; font-weight: 700;">${data.type}</span> (${data.category || "Perpetual"})</p>
+        <p style="margin: 0 0 6px 0;"><strong>Amount / Lot:</strong> ${data.amount}</p>
+        <p style="margin: 0 0 6px 0;"><strong>Execution Price:</strong> $${data.price.toLocaleString()}</p>
+        <p style="margin: 0 0 6px 0;"><strong>Order ID:</strong> #${data.orderId}</p>
+        <p style="margin: 0;"><strong>Status:</strong> <span style="color: #10B981; font-weight: 700;">${data.status}</span></p>
+      </div>
+      <p style="font-size: 13px; color: #9CA3AF;">You can monitor your open positions and trade history in real time on the trading terminal.</p>
+    `,
+    callToAction: {
+      text: "View Positions & Trades",
+      url: process.env.NEXT_PUBLIC_APP_URL ? `${process.env.NEXT_PUBLIC_APP_URL}/trade` : "http://localhost:3000/trade",
+    },
+  });
+
+  return sendEmail({
+    to: data.email,
+    subject: `Order Executed: ${data.type} ${data.symbol} [ID: #${data.orderId}] - ETHSLTD`,
+    eventType: "ORDER_EXECUTION",
+    category: EmailCategory.ORDERS,
+    html,
+  });
+}
+
+export async function sendP2pOrderNotification(data: {
+  email: string;
+  role: "BUYER" | "SELLER";
+  orderNumber: string;
+  asset: string;
+  cryptoAmount: number;
+  fiatAmount: number;
+  fiatCurrency: string;
+  status: "CREATED" | "PAYMENT_MARKED" | "COMPLETED" | "CANCELLED" | "DISPUTED";
+  counterpartyName?: string;
+}) {
+  let title = `P2P Order ${data.orderNumber} Update`;
+  let preheader = `Status update on your P2P order`;
+  let message = "";
+  let statusColor = "#F59E0B";
+
+  switch (data.status) {
+    case "CREATED":
+      statusColor = "#3B82F6";
+      title = `P2P Order Created: ${data.orderNumber}`;
+      preheader = `Escrow locked for ${data.cryptoAmount} ${data.asset}`;
+      message = data.role === "BUYER"
+        ? `You created a P2P order to buy ${data.cryptoAmount} ${data.asset} for ${data.fiatAmount} ${data.fiatCurrency}. Please complete the fiat payment to the seller before the time window expires.`
+        : `A buyer initiated an order to purchase ${data.cryptoAmount} ${data.asset} for ${data.fiatAmount} ${data.fiatCurrency}. Your crypto is securely held in escrow until you confirm payment receipt.`;
+      break;
+    case "PAYMENT_MARKED":
+      statusColor = "#F59E0B";
+      title = `P2P Payment Marked: ${data.orderNumber}`;
+      preheader = `Buyer marked payment as sent`;
+      message = data.role === "SELLER"
+        ? `The buyer has marked payment as completed for ${data.fiatAmount} ${data.fiatCurrency}. Please verify your bank/wallet receipt before releasing the escrowed crypto.`
+        : `You marked payment as completed for order ${data.orderNumber}. The seller is verifying receipt.`;
+      break;
+    case "COMPLETED":
+      statusColor = "#10B981";
+      title = `P2P Order Completed: ${data.orderNumber}`;
+      preheader = `Escrow released successfully`;
+      message = data.role === "BUYER"
+        ? `Congratulations! The seller has released ${data.cryptoAmount} ${data.asset} to your Currency Wallet balance.`
+        : `Your P2P order has finished successfully. Escrow has been transferred to the buyer.`;
+      break;
+    case "CANCELLED":
+      statusColor = "#EF4444";
+      title = `P2P Order Cancelled: ${data.orderNumber}`;
+      preheader = `Order ${data.orderNumber} was cancelled`;
+      message = `The P2P order ${data.orderNumber} has been cancelled. Any escrowed assets have been returned to the seller.`;
+      break;
+    case "DISPUTED":
+      statusColor = "#EF4444";
+      title = `P2P Order Disputed: ${data.orderNumber}`;
+      preheader = `A dispute has been raised for order ${data.orderNumber}`;
+      message = `A dispute has been filed. An ETHSLTD dispute specialist is reviewing evidence from both parties.`;
+      break;
+  }
+
+  const html = buildEmailTemplate({
+    title,
+    preheader,
+    contentHtml: `
+      <p>${message}</p>
+      <div style="background-color: #12141C; padding: 18px; border-radius: 8px; margin: 16px 0; border-left: 4px solid ${statusColor};">
+        <p style="margin: 0 0 6px 0;"><strong>Order Number:</strong> ${data.orderNumber}</p>
+        <p style="margin: 0 0 6px 0;"><strong>Crypto Amount:</strong> ${data.cryptoAmount} ${data.asset}</p>
+        <p style="margin: 0 0 6px 0;"><strong>Fiat Amount:</strong> ${data.fiatAmount.toLocaleString()} ${data.fiatCurrency}</p>
+        <p style="margin: 0 0 6px 0;"><strong>Status:</strong> <span style="color: ${statusColor}; font-weight: 700;">${data.status}</span></p>
+        <p style="margin: 0;"><strong>Your Role:</strong> ${data.role}</p>
+      </div>
+      <p style="font-size: 13px; color: #9CA3AF;">Institutional Escrow Protection guarantees that trades remain secure until confirmed by both parties.</p>
+    `,
+    callToAction: {
+      text: "View P2P Order Details",
+      url: process.env.NEXT_PUBLIC_APP_URL ? `${process.env.NEXT_PUBLIC_APP_URL}/p2p/orders` : "http://localhost:3000/p2p/orders",
+    },
+  });
+
+  return sendEmail({
+    to: data.email,
+    subject: `[P2P] ${title} - ETHSLTD`,
+    eventType: "P2P_ORDER_STATUS",
+    category: EmailCategory.P2P,
+    html,
+  });
+}
+
+// ==========================================
+// Institutional Global Category Dispatchers
+// ==========================================
+
+export async function sendSupportNotification(data: {
+  email: string;
+  ticketId: string;
+  subject: string;
+  message: string;
+}) {
+  const html = buildEmailTemplate({
+    title: `Support Ticket #${data.ticketId}`,
+    preheader: `Update regarding your support inquiry`,
+    contentHtml: `
+      <p>An update has been posted to your support case <strong>#${data.ticketId}</strong>:</p>
+      <div style="background-color: #12141C; padding: 18px; border-radius: 8px; margin: 16px 0; border-left: 4px solid #3B82F6;">
+        <p style="margin: 0 0 6px 0;"><strong>Subject:</strong> ${data.subject}</p>
+        <p style="margin: 0; color: #E5E7EB;">${data.message}</p>
+      </div>
+    `,
+    callToAction: {
+      text: "View Support Desk",
+      url: process.env.NEXT_PUBLIC_APP_URL ? `${process.env.NEXT_PUBLIC_APP_URL}/support` : "http://localhost:3000/support",
+    },
+  });
+
+  return sendEmail({
+    to: data.email,
+    subject: `[Support #${data.ticketId}] ${data.subject} - ETHSLTD`,
+    eventType: "SUPPORT_REPLY",
+    category: EmailCategory.SUPPORT,
+    html,
+  });
+}
+
+export async function sendComplianceNotification(data: {
+  email: string;
+  title: string;
+  message: string;
+  actionRequired?: boolean;
+}) {
+  const html = buildEmailTemplate({
+    title: data.title,
+    preheader: `Important Compliance and Regulatory Notice`,
+    contentHtml: `
+      <p style="color: #F59E0B; font-weight: 700;">ETHSLTD Compliance Review Notification</p>
+      <p>${data.message}</p>
+    `,
+    callToAction: {
+      text: "Access Compliance Portal",
+      url: process.env.NEXT_PUBLIC_APP_URL ? `${process.env.NEXT_PUBLIC_APP_URL}/compliance` : "http://localhost:3000/compliance",
+    },
+  });
+
+  return sendEmail({
+    to: data.email,
+    subject: `[Compliance] ${data.title} - ETHSLTD`,
+    eventType: "COMPLIANCE_REQUEST",
+    category: EmailCategory.COMPLIANCE,
+    html,
+  });
+}
+
+export async function sendMarketAlertNotification(data: {
+  email: string;
+  symbol: string;
+  condition: string;
+  price: number;
+}) {
+  const html = buildEmailTemplate({
+    title: `Market Alert Triggered: ${data.symbol}`,
+    preheader: `${data.symbol} has reached your target condition`,
+    contentHtml: `
+      <p>Your configured market alert for <strong>${data.symbol}</strong> has met trigger conditions:</p>
+      <div style="background-color: #12141C; padding: 18px; border-radius: 8px; margin: 16px 0; border-left: 4px solid #10B981;">
+        <p style="margin: 0 0 6px 0;"><strong>Asset:</strong> ${data.symbol}</p>
+        <p style="margin: 0 0 6px 0;"><strong>Condition:</strong> ${data.condition}</p>
+        <p style="margin: 0;"><strong>Current Trigger Price:</strong> $${data.price.toLocaleString()}</p>
+      </div>
+    `,
+    callToAction: {
+      text: "Open Trading Chart",
+      url: process.env.NEXT_PUBLIC_APP_URL ? `${process.env.NEXT_PUBLIC_APP_URL}/trade` : "http://localhost:3000/trade",
+    },
+  });
+
+  return sendEmail({
+    to: data.email,
+    subject: `[Market Alert] ${data.symbol} Alert Triggered - ETHSLTD`,
+    eventType: "MARKET_ALERT",
+    category: EmailCategory.MARKET_ALERTS,
+    html,
+  });
+}
+
+export async function sendAccountNotification(data: {
+  email: string;
+  title: string;
+  message: string;
+}) {
+  const html = buildEmailTemplate({
+    title: data.title,
+    preheader: data.message,
+    contentHtml: `<p>${data.message}</p>`,
+    callToAction: {
+      text: "Account Settings",
+      url: process.env.NEXT_PUBLIC_APP_URL ? `${process.env.NEXT_PUBLIC_APP_URL}/profile` : "http://localhost:3000/profile",
+    },
+  });
+
+  return sendEmail({
+    to: data.email,
+    subject: `${data.title} - ETHSLTD`,
+    eventType: "ACCOUNT_UPDATE",
+    category: EmailCategory.ACCOUNT,
+    html,
+  });
+}
+
+export async function sendUpdateNotification(data: {
+  email: string;
+  title: string;
+  message: string;
+}) {
+  const html = buildEmailTemplate({
+    title: data.title,
+    preheader: data.message,
+    contentHtml: `<p>${data.message}</p>`,
+    callToAction: {
+      text: "Platform Announcements",
+      url: process.env.NEXT_PUBLIC_APP_URL ? `${process.env.NEXT_PUBLIC_APP_URL}/announcements` : "http://localhost:3000/announcements",
+    },
+  });
+
+  return sendEmail({
+    to: data.email,
+    subject: `[Announcement] ${data.title} - ETHSLTD`,
+    eventType: "PLATFORM_ANNOUNCEMENT",
+    category: EmailCategory.UPDATES,
+    html,
+  });
+}
+
+export async function sendRewardNotification(data: {
+  email: string;
+  rewardType: string;
+  amount: number;
+  asset: string;
+}) {
+  const html = buildEmailTemplate({
+    title: `Reward Credited: ${data.rewardType}`,
+    preheader: `You earned ${data.amount} ${data.asset}`,
+    contentHtml: `
+      <p>Congratulations! You have received a platform promotional reward:</p>
+      <div style="background-color: #12141C; padding: 18px; border-radius: 8px; margin: 16px 0; border-left: 4px solid #10B981;">
+        <p style="margin: 0 0 6px 0;"><strong>Program:</strong> ${data.rewardType}</p>
+        <p style="margin: 0;"><strong>Reward Amount:</strong> ${data.amount} ${data.asset}</p>
+      </div>
+    `,
+    callToAction: {
+      text: "Check Rewards Balance",
+      url: process.env.NEXT_PUBLIC_APP_URL ? `${process.env.NEXT_PUBLIC_APP_URL}/assets` : "http://localhost:3000/assets",
+    },
+  });
+
+  return sendEmail({
+    to: data.email,
+    subject: `[Rewards] ${data.amount} ${data.asset} Credited - ETHSLTD`,
+    eventType: "REWARD_EARNED",
+    category: EmailCategory.REWARDS,
+    html,
+  });
+}
+
+export async function sendReportNotification(data: {
+  email: string;
+  period: string;
+  reportUrl: string;
+}) {
+  const html = buildEmailTemplate({
+    title: `Account Statement: ${data.period}`,
+    preheader: `Your account statement for ${data.period} is ready`,
+    contentHtml: `
+      <p>Your periodic ETHSLTD trading statement and asset summary for <strong>${data.period}</strong> has been generated.</p>
+    `,
+    callToAction: {
+      text: "Download Statement",
+      url: data.reportUrl,
+    },
+  });
+
+  return sendEmail({
+    to: data.email,
+    subject: `[Report] Account Statement (${data.period}) - ETHSLTD`,
+    eventType: "ACCOUNT_STATEMENT",
+    category: EmailCategory.REPORTS,
+    html,
+  });
+}
+
+export async function sendApiSecurityNotification(data: {
+  email: string;
+  action: "CREATED" | "REVOKED" | "MODIFIED";
+  keyName: string;
+}) {
+  const html = buildEmailTemplate({
+    title: `API Key Security Event: ${data.action}`,
+    preheader: `API key ${data.keyName} has been ${data.action.toLowerCase()}`,
+    contentHtml: `
+      <p>A security-sensitive API key operation occurred on your ETHSLTD account:</p>
+      <div style="background-color: #12141C; padding: 18px; border-radius: 8px; margin: 16px 0; border-left: 4px solid #F59E0B;">
+        <p style="margin: 0 0 6px 0;"><strong>API Key:</strong> ${data.keyName}</p>
+        <p style="margin: 0;"><strong>Status:</strong> ${data.action}</p>
+      </div>
+      <p style="font-size: 13px; color: #9CA3AF;">If you did not initiate this change, revoke your developer keys immediately and reset your credentials.</p>
+    `,
+    callToAction: {
+      text: "Manage API Keys",
+      url: process.env.NEXT_PUBLIC_APP_URL ? `${process.env.NEXT_PUBLIC_APP_URL}/security/api-keys` : "http://localhost:3000/security/api-keys",
+    },
+  });
+
+  return sendEmail({
+    to: data.email,
+    subject: `Security Alert: API Key ${data.action} - ETHSLTD`,
+    eventType: "API_KEY_SECURITY",
+    category: EmailCategory.API_SECURITY,
+    html,
+  });
+}
+
+
 

@@ -384,6 +384,47 @@ export class EthsltdClient {
     });
   }
 
+  async getMyP2pAds(params?: Record<string, any>) {
+    const searchParams = new URLSearchParams();
+    if (params) {
+      for (const [k, v] of Object.entries(params)) {
+        if (v !== undefined && v !== null && v !== '') {
+          searchParams.append(k, v.toString());
+        }
+      }
+    }
+    const query = searchParams.toString();
+    return this.request<any[]>(`/api/v1/p2p/my-ads${query ? '?' + query : ''}`);
+  }
+
+  async updateP2pAdStatus(adId: string, status: string) {
+    return this.request<any>(`/api/v1/p2p/ads/${adId}/status`, {
+      method: 'PUT',
+      body: JSON.stringify({ status }),
+    });
+  }
+
+  async getP2pPaymentMethods() {
+    return this.request<any[]>('/api/v1/p2p/payment-methods');
+  }
+
+  async addP2pPaymentMethod(data: any) {
+    return this.request<any>('/api/v1/p2p/payment-methods', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteP2pPaymentMethod(id: string) {
+    return this.request<any>(`/api/v1/p2p/payment-methods/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async getP2pProfile() {
+    return this.request<any>('/api/v1/p2p/profile');
+  }
+
   // 2FA Methods
   async generateMfa() {
     return this.request<any>('/api/v1/2fa/generate', { method: 'POST' });
@@ -415,6 +456,39 @@ export class EthsltdClient {
     if (params?.endDate) searchParams.append('endDate', params.endDate);
     const qs = searchParams.toString() ? `?${searchParams.toString()}` : '';
     return this.request<any>(`/api/v1/admin/stats/p2p${qs}`);
+  }
+
+  async adminGetP2pOrders(params?: Record<string, any>) {
+    const searchParams = new URLSearchParams();
+    if (params) {
+      for (const [k, v] of Object.entries(params)) {
+        if (v !== undefined && v !== null && v !== '') {
+          searchParams.append(k, v.toString());
+        }
+      }
+    }
+    const qs = searchParams.toString() ? `?${searchParams.toString()}` : '';
+    return this.request<any[]>(`/api/v1/admin/p2p/orders${qs}`);
+  }
+
+  async adminGetP2pDisputes(params?: Record<string, any>) {
+    const searchParams = new URLSearchParams();
+    if (params) {
+      for (const [k, v] of Object.entries(params)) {
+        if (v !== undefined && v !== null && v !== '') {
+          searchParams.append(k, v.toString());
+        }
+      }
+    }
+    const qs = searchParams.toString() ? `?${searchParams.toString()}` : '';
+    return this.request<any[]>(`/api/v1/admin/p2p/disputes${qs}`);
+  }
+
+  async adminResolveP2pDispute(disputeId: string, data: { decision: 'BUYER_WINS' | 'SELLER_WINS' | 'SPLIT' | 'DISMISSED'; resolutionNotes?: string; releaseEscrowTo?: 'BUYER' | 'SELLER' | 'NONE' }) {
+    return this.request<any>(`/api/v1/admin/p2p/disputes/${disputeId}/resolve`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
   }
 
   // Admin Withdrawal Methods

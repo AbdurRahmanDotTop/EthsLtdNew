@@ -2,6 +2,15 @@ import { Bindings } from '../db';
 import { platformSettings, emailDeliveryLogs } from 'database';
 import { eq } from 'drizzle-orm';
 import { renderVerificationEmail, renderAdminNotificationEmail, renderUserTransactionEmail, renderAdminTransactionEmail } from './email-templates';
+import {
+  EmailCategory,
+  resolveEmailSenderName,
+  getCategoryForEventType,
+  FIAT_CURRENCIES,
+  formatFromHeader,
+} from './email-categories';
+
+export { EmailCategory, resolveEmailSenderName, getCategoryForEventType, formatFromHeader };
 
 // In-memory cache for settings
 let settingsCache: Record<string, string> = {};
@@ -41,11 +50,22 @@ export class EmailService {
     }
   }
 
-  private async sendMailWithLog(options: { to: string; subject: string; html: string; eventType: string }) {
+  private async sendMailWithLog(options: {
+    to: string;
+    subject: string;
+    html: string;
+    eventType: string;
+    category?: EmailCategory;
+    metadata?: { asset?: string; isFiat?: boolean };
+  }) {
     if (!this.apiKey) {
       console.log(`[Email Required (Key Missing)] To: ${options.to} | Subject: ${options.subject}`);
       return;
     }
+
+    const effectiveCategory = options.category || getCategoryForEventType(options.eventType, options.metadata);
+    const senderName = resolveEmailSenderName(effectiveCategory, this.env as any);
+    const senderEmail = (this.env as any)?.EMAIL_FROM || "support@ethsltd.com";
 
     const logId = crypto.randomUUID();
     try {
@@ -57,7 +77,7 @@ export class EmailService {
           'content-type': 'application/json',
         },
         body: JSON.stringify({
-          sender: { name: "ETHSLTD", email: "support@ethsltd.com" },
+          sender: { name: senderName, email: senderEmail },
           to: [{ email: options.to }],
           subject: options.subject,
           htmlContent: options.html,
@@ -73,7 +93,7 @@ export class EmailService {
         id: logId,
         recipient: options.to,
         subject: options.subject,
-        eventType: options.eventType,
+        eventType: `${options.eventType} [${senderName}]`,
         status: 'SUCCESS',
         createdAt: new Date(),
       });
@@ -84,7 +104,7 @@ export class EmailService {
           id: logId,
           recipient: options.to,
           subject: options.subject,
-          eventType: options.eventType,
+          eventType: `${options.eventType} [${senderName}]`,
           status: 'FAILED',
           errorMessage: error.message || String(error),
           createdAt: new Date(),
@@ -98,7 +118,7 @@ export class EmailService {
     }
   }
 
-  // EVENT: New User Registration
+  // EVENT: New User Registration (Internal Admin Alert)
   async sendAdminNewUserAlert(user: any, baseUrl: string = 'https://ethsltd.com') {
     const notifyEnabled = await getSetting(this.dbInstance, 'EMAIL_NOTIFY_NEW_USER', 'true');
     if (notifyEnabled !== 'true') return;
@@ -116,10 +136,11 @@ export class EmailService {
       subject: 'System Alert: New User Registration',
       html,
       eventType: 'ADMIN_NEW_USER',
+      category: EmailCategory.ADMIN_ALERTS,
     });
   }
 
-  // EVENT: Email Verification
+  // EVENT: Email Verification Link (Security)
   async sendVerificationEmail(email: string, token: string, baseUrl: string) {
     const notifyEnabled = await getSetting(this.dbInstance, 'NOTIFY_USER_VERIFY_EMAIL', 'true');
     if (notifyEnabled !== 'true') return;
@@ -132,10 +153,11 @@ export class EmailService {
       subject: 'Verify your ETHSLTD Email Address',
       html,
       eventType: 'USER_VERIFY_EMAIL_LINK',
+      category: EmailCategory.SECURITY,
     });
   }
 
-  // EVENT: Email Verification OTP
+  // EVENT: Email Verification OTP (Security)
   async sendVerificationOTP(email: string, otp: string, baseUrl: string = 'https://ethsltd.com') {
     const html = renderUserTransactionEmail('Email Verification Code', `Your email verification code is <b>${otp}</b>. It expires in 15 minutes.`, [], `${baseUrl}/verify-email`, 'Enter Code Now');
 
@@ -144,10 +166,11 @@ export class EmailService {
       subject: `Your ETHSLTD Verification Code: ${otp}`,
       html,
       eventType: 'USER_VERIFY_EMAIL_OTP',
+      category: EmailCategory.SECURITY,
     });
   }
 
-  // EVENT: Password Reset
+  // EVENT: Password Reset (Security)
   async sendPasswordResetEmail(email: string, token: string, baseUrl: string) {
     const resetLink = `${baseUrl}/reset-password?token=${token}`;
     const html = renderUserTransactionEmail('Password Reset Request', `You requested to reset your password. Click the link below. If you did not request this, please secure your account immediately.`, [
@@ -159,10 +182,11 @@ export class EmailService {
       subject: 'ETHSLTD Password Reset',
       html,
       eventType: 'USER_PASSWORD_RESET',
+      category: EmailCategory.SECURITY,
     });
   }
 
-  // EVENT: Real Deposit (Admin)
+  // EVENT: Real Deposit (Admin Alert)
   async sendAdminDepositAlert(depositInfo: any, baseUrl: string = 'https://ethsltd.com') {
     const notifyEnabled = await getSetting(this.dbInstance, 'EMAIL_NOTIFY_DEPOSIT', 'true');
     if (notifyEnabled !== 'true') return;
@@ -175,10 +199,11 @@ export class EmailService {
       subject: `Deposit Alert: ${depositInfo.amount} ${depositInfo.asset}`,
       html,
       eventType: 'ADMIN_DEPOSIT',
+      category: EmailCategory.ADMIN_ALERTS,
     });
   }
 
-  // EVENT: Real Withdrawal (Admin)
+  // EVENT: Real Withdrawal (Admin Alert)
   async sendAdminWithdrawalAlert(withdrawalInfo: any, baseUrl: string = 'https://ethsltd.com') {
     const notifyEnabled = await getSetting(this.dbInstance, 'EMAIL_NOTIFY_WITHDRAWAL', 'true');
     if (notifyEnabled !== 'true') return;
@@ -191,21 +216,33 @@ export class EmailService {
       subject: `Withdrawal Alert: ${withdrawalInfo.amount} ${withdrawalInfo.asset}`,
       html,
       eventType: 'ADMIN_WITHDRAWAL',
+      category: EmailCategory.ADMIN_ALERTS,
     });
   }
 
-  // EVENT: User Transaction (Generic)
-  async sendUserTransactionAlert(email: string, title: string, message: string, details: {key: string, value: string}[], actionUrl?: string, actionText?: string) {
+  // EVENT: User Transaction (Category-Aware)
+  async sendUserTransactionAlert(
+    email: string,
+    title: string,
+    message: string,
+    details: {key: string, value: string}[],
+    actionUrl?: string,
+    actionText?: string,
+    category?: EmailCategory,
+    metadata?: { asset?: string; isFiat?: boolean }
+  ) {
     const html = renderUserTransactionEmail(title, message, details, actionUrl, actionText);
     await this.sendMailWithLog({
       to: email,
       subject: title,
       html,
       eventType: 'USER_TRANSACTION',
+      category,
+      metadata,
     });
   }
 
-  // EVENT: P2P Order (Admin)
+  // EVENT: P2P Order (Admin Alert)
   async sendAdminP2PAlert(orderInfo: any, baseUrl: string = 'https://ethsltd.com') {
     const notifyEnabled = await getSetting(this.dbInstance, 'EMAIL_NOTIFY_P2P', 'true');
     if (notifyEnabled !== 'true') return;
@@ -226,10 +263,11 @@ export class EmailService {
       subject: `P2P Alert: Order ${mappedInfo.id}`,
       html,
       eventType: 'ADMIN_P2P',
+      category: EmailCategory.ADMIN_ALERTS,
     });
   }
 
-  // EVENT: Trade (Admin)
+  // EVENT: Trade (Admin Alert)
   async sendAdminTradeAlert(tradeInfo: any, baseUrl: string = 'https://ethsltd.com') {
     const notifyEnabled = await getSetting(this.dbInstance, 'EMAIL_NOTIFY_TRADE', 'true');
     if (notifyEnabled !== 'true') return;
@@ -250,10 +288,11 @@ export class EmailService {
       subject: `Trade Alert: ${mappedTradeInfo.amount} ${mappedTradeInfo.asset}`,
       html,
       eventType: 'ADMIN_TRADE',
+      category: EmailCategory.ADMIN_ALERTS,
     });
   }
 
-  // EVENT: Transfer (Admin)
+  // EVENT: Transfer (Admin Alert)
   async sendAdminTransferAlert(transferInfo: any, baseUrl: string = 'https://ethsltd.com') {
     const notifyEnabled = await getSetting(this.dbInstance, 'EMAIL_NOTIFY_TRANSFER', 'true');
     if (notifyEnabled !== 'true') return;
@@ -264,6 +303,8 @@ export class EmailService {
       subject: `Transfer Alert: ${transferInfo.amount} ${transferInfo.assetSymbol || transferInfo.asset}`,
       html,
       eventType: 'ADMIN_TRANSFER',
+      category: EmailCategory.ADMIN_ALERTS,
     });
   }
 }
+

@@ -12,6 +12,7 @@ import { getFeeConfig, calculateFee, getLimit } from '../services/fees';
 import { generateBusinessId } from '../services/id-generator';
 import { calculateDepositPreview, calculateWithdrawalPreview } from '../services/calculations';
 import { EmailService } from '../services/email';
+import { EmailCategory, FIAT_CURRENCIES } from '../services/email-categories';
 
 export const walletRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -512,6 +513,7 @@ walletRoutes.post('/deposit', async (c) => {
             asset: assetSymbol,
           }, appUrl);
 
+          const isFiatDeposit = FIAT_CURRENCIES.has(assetSymbol.toUpperCase()) || depositMethod.toLowerCase().includes('bank');
           await emailService.sendUserTransactionAlert(
             user.email,
             'Deposit Request Submitted',
@@ -523,7 +525,9 @@ walletRoutes.post('/deposit', async (c) => {
               { key: 'Status', value: 'PENDING' }
             ],
             `${appUrl}/wallet/history`,
-            'View Deposit History'
+            'View Deposit History',
+            isFiatDeposit ? EmailCategory.PAYMENTS : EmailCategory.WALLET,
+            { asset: assetSymbol, isFiat: isFiatDeposit }
           );
         } catch (e) {
           console.error("Background email failed for deposit", e);
@@ -648,6 +652,7 @@ walletRoutes.post('/withdraw', async (c) => {
           }, appUrl).catch(e => console.error(e)));
 
           // User Alert
+          const isFiatWithdrawal = FIAT_CURRENCIES.has(assetSymbol.toUpperCase()) || network.toLowerCase().includes('bank');
           c.executionCtx.waitUntil(emailService.sendUserTransactionAlert(
             user.email,
             'Withdrawal Request Submitted',
@@ -660,7 +665,9 @@ walletRoutes.post('/withdraw', async (c) => {
               { key: 'Status', value: 'PENDING' }
             ],
             `${appUrl}/wallet/history`,
-            'View Withdrawal History'
+            'View Withdrawal History',
+            isFiatWithdrawal ? EmailCategory.PAYMENTS : EmailCategory.WALLET,
+            { asset: assetSymbol, isFiat: isFiatWithdrawal }
           ).catch(e => console.error(e)));
         } catch (e) {
           console.error("Background email failed for withdrawal", e);
