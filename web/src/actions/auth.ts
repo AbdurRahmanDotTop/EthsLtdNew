@@ -10,6 +10,7 @@ import {
   sendPinResetNotification,
   sendPasswordChangedNotification,
   sendPinChangedNotification,
+  sendLoginAlertNotification,
 } from "@/lib/email";
 
 export async function loginUser(formData: { email: string; password: string }) {
@@ -57,6 +58,14 @@ export async function loginUser(formData: { email: string; password: string }) {
       role: user.role,
       uid: user.uid,
     });
+
+    // Send login alert (non-blocking for login, awaited for Cloudflare Worker isolate)
+    try {
+      await sendLoginAlertNotification({
+        email: user.email,
+        time: new Date().toUTCString(),
+      }).catch((e) => console.warn("Login alert failed:", e));
+    } catch {}
 
     const isAdmin = user.role === "ADMIN" || user.role === "SUPER_ADMIN";
     const isRM = user.role === "RM";
@@ -143,20 +152,21 @@ export async function registerUser(formData: {
       uid: newUser.uid,
     });
 
-    // Send Welcome Email and Admin Notification (non-blocking)
+    // Send Welcome Email and Admin Notification (awaited for Cloudflare Workers isolate persistence)
     try {
-      sendWelcomeNotification({
-        email: newUser.email,
-        name: newUser.name,
-        uid: newUser.uid,
-      }).catch((e) => console.warn("Welcome email async failed:", e));
-
-      sendAdminEventNotification({
-        eventType: "REGISTRATION",
-        title: `New User Registered: #${newUser.uid}`,
-        message: `User ${newUser.email} (UID: #${newUser.uid}) has completed registration.`,
-        details: { Email: newUser.email, UID: newUser.uid, Time: new Date().toISOString() },
-      }).catch((e) => console.warn("Admin alert async failed:", e));
+      await Promise.allSettled([
+        sendWelcomeNotification({
+          email: newUser.email,
+          name: newUser.name,
+          uid: newUser.uid,
+        }),
+        sendAdminEventNotification({
+          eventType: "REGISTRATION",
+          title: `New User Registered: #${newUser.uid}`,
+          message: `User ${newUser.email} (UID: #${newUser.uid}) has completed registration.`,
+          details: { Email: newUser.email, UID: newUser.uid, Time: new Date().toISOString() },
+        }),
+      ]);
     } catch (e) {
       console.warn("Notification dispatch exception:", e);
     }
@@ -235,6 +245,12 @@ export async function changeUserPassword(formData: {
       where: { id: user.id },
       data: { passwordHash: newHash },
     });
+
+    try {
+      await sendPasswordChangedNotification({ email: user.email });
+    } catch (e) {
+      console.warn("Password changed alert dispatch failed:", e);
+    }
 
     return { success: true };
   } catch (err: unknown) {
@@ -420,9 +436,11 @@ export async function resetPasswordWithToken(formData: {
     });
 
     // Send confirmation security alert
-    sendPasswordChangedNotification({ email: normalizedEmail }).catch((e) =>
-      console.warn("Security alert send failed:", e)
-    );
+    try {
+      await sendPasswordChangedNotification({ email: normalizedEmail });
+    } catch (e) {
+      console.warn("Security alert send failed:", e);
+    }
 
     return {
       success: true,
@@ -610,9 +628,11 @@ export async function resetPinWithToken(formData: {
     });
 
     // Send confirmation security alert
-    sendPinChangedNotification({ email: normalizedEmail }).catch((e) =>
-      console.warn("Security alert send failed:", e)
-    );
+    try {
+      await sendPinChangedNotification({ email: normalizedEmail });
+    } catch (e) {
+      console.warn("Security alert send failed:", e);
+    }
 
     return {
       success: true,

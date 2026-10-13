@@ -1,5 +1,6 @@
 import nodemailer from "nodemailer";
 import prisma from "@/lib/prisma";
+import { getCloudflareContext } from "@opennextjs/cloudflare";
 import {
   EmailCategory,
   resolveEmailSenderName,
@@ -20,6 +21,7 @@ export interface SendEmailOptions {
     | "RESET_PIN"
     | "PASSWORD_CHANGED"
     | "PIN_CHANGED"
+    | "LOGIN_ALERT"
     | "DEPOSIT_STATUS"
     | "WITHDRAWAL_STATUS"
     | "KYC_STATUS"
@@ -47,38 +49,64 @@ export interface EmailSendResult {
 }
 
 /**
- * Fetch the active EmailConfig (DB priority, followed by ENV variables)
+ * Fetch the active EmailConfig (DB priority, followed by ENV variables and Cloudflare Workers secrets)
  */
 export async function getActiveEmailConfig(configId?: string) {
   try {
+    let cfEnv: any = {};
+    try {
+      const cf = getCloudflareContext({ async: false });
+      if (cf?.env) cfEnv = cf.env;
+    } catch {}
+
+    const envBrevoKey = (process.env.BREVO_API_KEY || cfEnv.BREVO_API_KEY || "").trim();
+    const envFromEmail = process.env.EMAIL_FROM || cfEnv.EMAIL_FROM || "support@ethsltd.com";
+    const envFromName = process.env.EMAIL_FROM_NAME || cfEnv.EMAIL_FROM_NAME || "ETHSLTD Security";
+    const envReplyTo = process.env.EMAIL_REPLY_TO || cfEnv.EMAIL_REPLY_TO || null;
+
     if (configId) {
       const explicit = await prisma.emailConfig.findUnique({ where: { id: configId } });
-      if (explicit) return explicit;
+      if (explicit) {
+        if (explicit.provider === "BREVO" && !explicit.apiKey && envBrevoKey) {
+          explicit.apiKey = envBrevoKey;
+        }
+        return explicit;
+      }
     }
 
     // Default enabled provider from DB
     const dbDefault = await prisma.emailConfig.findFirst({
       where: { isDefault: true, enabled: true },
     });
-    if (dbDefault) return dbDefault;
+    if (dbDefault) {
+      if (dbDefault.provider === "BREVO" && !dbDefault.apiKey && envBrevoKey) {
+        dbDefault.apiKey = envBrevoKey;
+      }
+      return dbDefault;
+    }
 
     // Any enabled provider from DB
     const anyEnabled = await prisma.emailConfig.findFirst({
       where: { enabled: true },
       orderBy: { updatedAt: "desc" },
     });
-    if (anyEnabled) return anyEnabled;
+    if (anyEnabled) {
+      if (anyEnabled.provider === "BREVO" && !anyEnabled.apiKey && envBrevoKey) {
+        anyEnabled.apiKey = envBrevoKey;
+      }
+      return anyEnabled;
+    }
 
-    // Check environment variables as fallback
-    if (process.env.BREVO_API_KEY) {
+    // Check environment / Cloudflare Workers secrets as fallback
+    if (envBrevoKey) {
       return {
         id: "env-brevo",
         provider: "BREVO",
         name: "Brevo API (Environment)",
-        apiKey: process.env.BREVO_API_KEY,
-        fromEmail: process.env.EMAIL_FROM || "support@ethsltd.com",
-        fromName: process.env.EMAIL_FROM_NAME || "ETHSLTD Security",
-        replyTo: process.env.EMAIL_REPLY_TO || null,
+        apiKey: envBrevoKey,
+        fromEmail: envFromEmail,
+        fromName: envFromName,
+        replyTo: envReplyTo,
         enabled: true,
         isDefault: true,
       };
@@ -94,9 +122,9 @@ export async function getActiveEmailConfig(configId?: string) {
         encryption: process.env.SMTP_SECURE === "true" ? "SSL" : "TLS",
         username: process.env.SMTP_USER,
         password: process.env.SMTP_PASS || "",
-        fromEmail: process.env.EMAIL_FROM || "support@ethsltd.com",
-        fromName: process.env.EMAIL_FROM_NAME || "ETHSLTD Security",
-        replyTo: process.env.EMAIL_REPLY_TO || null,
+        fromEmail: envFromEmail,
+        fromName: envFromName,
+        replyTo: envReplyTo,
         enabled: true,
         isDefault: true,
       };
@@ -140,12 +168,14 @@ async function sendViaBrevoApi(
         "content-type": "application/json",
       },
       body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(12000),
     });
 
     const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
 
     if (!res.ok) {
       const errMsg = String(data.message || `Brevo API error ${res.status}: ${res.statusText}`);
+      console.error(`[ETHSLTD Email] Brevo API error (${res.status}):`, errMsg);
       return { success: false, error: errMsg };
     }
 
@@ -155,6 +185,7 @@ async function sendViaBrevoApi(
     };
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : String(err);
+    console.error("[ETHSLTD Email] Brevo transmission error:", errorMsg);
     return { success: false, error: errorMsg || "Network error contacting Brevo API" };
   }
 }
@@ -674,6 +705,77 @@ export async function sendKycNotification(data: {
   });
 }
 
+export async function sendKycSubmissionConfirmation(data: {
+  email: string;
+  name?: string | null;
+  uid?: number | null;
+  documentType: string;
+  attemptCount?: number;
+}) {
+  const html = buildEmailTemplate({
+    title: `Identity Verification Submitted`,
+    preheader: `Your ${data.documentType} verification has been received and is under review`,
+    contentHtml: `
+      <p>Hello <strong>${data.name || data.email}</strong>,</p>
+      <p>We have successfully received your <strong>${data.documentType}</strong> documents for KYC (Know Your Customer) identity verification.</p>
+      <div style="background-color: #12141C; padding: 18px; border-radius: 8px; margin: 16px 0; border-left: 4px solid #3B82F6;">
+        ${data.uid ? `<p style="margin: 0 0 6px 0;"><strong>UID:</strong> #${data.uid}</p>` : ""}
+        <p style="margin: 0 0 6px 0;"><strong>Document Type:</strong> ${data.documentType}</p>
+        <p style="margin: 0 0 6px 0;"><strong>Status:</strong> <span style="color: #3B82F6; font-weight: 700;">UNDER REVIEW</span></p>
+        ${data.attemptCount ? `<p style="margin: 0; font-size: 12px; color: #9CA3AF;"><strong>Submission Attempt:</strong> #${data.attemptCount}</p>` : ""}
+      </div>
+      <p style="font-size: 13px; color: #9CA3AF;">Our compliance and risk team is reviewing your documents. Reviews typically take between 15 minutes to a few hours during business hours. You will receive an email as soon as your verification status is updated.</p>
+    `,
+    callToAction: {
+      text: "View Verification Status",
+      url: process.env.NEXT_PUBLIC_APP_URL ? `${process.env.NEXT_PUBLIC_APP_URL}/profile/kyc` : "http://localhost:3000/profile/kyc",
+    },
+    noteText: "Notice: You do not need to resubmit while your verification is pending review.",
+  });
+
+  return sendEmail({
+    to: data.email,
+    subject: `KYC Documents Received (Under Review) - ETHSLTD`,
+    eventType: "KYC_STATUS",
+    category: EmailCategory.VERIFICATION,
+    html,
+  });
+}
+
+export async function sendLoginAlertNotification(data: {
+  email: string;
+  ip?: string;
+  userAgent?: string;
+  time?: string;
+}) {
+  const html = buildEmailTemplate({
+    title: `Security Alert: New Sign-in Detected`,
+    preheader: `A new login to your ETHSLTD account was detected`,
+    contentHtml: `
+      <p>A new sign-in to your <strong>ETHSLTD</strong> trading account was recorded.</p>
+      <div style="background-color: #12141C; padding: 18px; border-radius: 8px; margin: 16px 0; border-left: 4px solid #10B981;">
+        <p style="margin: 0 0 6px 0;"><strong>Time:</strong> ${data.time || new Date().toUTCString()}</p>
+        ${data.ip ? `<p style="margin: 0 0 6px 0;"><strong>IP Address:</strong> ${data.ip}</p>` : ""}
+        ${data.userAgent ? `<p style="margin: 0; font-size: 12px; color: #9CA3AF;"><strong>Device / Browser:</strong> ${data.userAgent}</p>` : ""}
+      </div>
+      <p style="font-size: 13px; color: #9CA3AF;">If this was you, you can safely ignore this notification. If you did not sign in recently, change your password immediately and contact security support.</p>
+    `,
+    callToAction: {
+      text: "Security Dashboard",
+      url: process.env.NEXT_PUBLIC_APP_URL ? `${process.env.NEXT_PUBLIC_APP_URL}/profile` : "http://localhost:3000/profile",
+    },
+    noteText: "Never share your credentials with anyone. ETHSLTD support will never ask for your password.",
+  });
+
+  return sendEmail({
+    to: data.email,
+    subject: `Security Alert: New Login to ETHSLTD`,
+    eventType: "LOGIN_ALERT",
+    category: EmailCategory.SECURITY,
+    html,
+  });
+}
+
 export async function sendAdminEventNotification(data: {
   eventType: "REGISTRATION" | "DEPOSIT" | "WITHDRAWAL" | "KYC";
   title: string;
@@ -686,17 +788,17 @@ export async function sendAdminEventNotification(data: {
       orderBy: { isDefault: "desc" },
     });
 
-    if (!config || !config.adminEmails) {
-      return { success: false, error: "No admin notification emails configured" };
+    const adminEmailsStr = (config?.adminEmails || process.env.ADMIN_EMAIL || "admin@ethsltd.com").trim();
+
+    // Check preference flags if config exists
+    if (config) {
+      if (data.eventType === "REGISTRATION" && config.notifyOnRegistration === false) return { success: true };
+      if (data.eventType === "DEPOSIT" && config.notifyOnDeposit === false) return { success: true };
+      if (data.eventType === "WITHDRAWAL" && config.notifyOnWithdrawal === false) return { success: true };
+      if (data.eventType === "KYC" && config.notifyOnKyc === false) return { success: true };
     }
 
-    // Check preference flags
-    if (data.eventType === "REGISTRATION" && !config.notifyOnRegistration) return { success: true };
-    if (data.eventType === "DEPOSIT" && !config.notifyOnDeposit) return { success: true };
-    if (data.eventType === "WITHDRAWAL" && !config.notifyOnWithdrawal) return { success: true };
-    if (data.eventType === "KYC" && !config.notifyOnKyc) return { success: true };
-
-    const recipients: string[] = config.adminEmails
+    const recipients: string[] = adminEmailsStr
       .split(",")
       .map((e: string) => e.trim())
       .filter((e: string) => e.includes("@"));

@@ -342,11 +342,11 @@ export async function reviewKyc(
 
   // Send transactional email notification to user
   try {
-    sendKycNotification({
+    await sendKycNotification({
       email: kyc.user.email,
       status: decision,
       reason: reason?.trim(),
-    }).catch((e) => console.warn("KYC notification async failed:", e));
+    });
   } catch (e) {
     console.warn("KYC notification dispatch error:", e);
   }
@@ -435,14 +435,14 @@ export async function reviewDeposit(
 
   // Send transactional email notification to user
   try {
-    sendDepositNotification({
+    await sendDepositNotification({
       email: deposit.user.email,
       amount: deposit.amount,
       asset: deposit.asset,
       status: decision,
       referenceNumber: deposit.referenceNumber,
       reason: rejectionReason,
-    }).catch((e) => console.warn("Deposit notification async failed:", e));
+    });
   } catch (e) {
     console.warn("Deposit notification dispatch error:", e);
   }
@@ -551,14 +551,14 @@ export async function reviewWithdrawal(
 
   // Send transactional email notification to user
   try {
-    sendWithdrawalNotification({
+    await sendWithdrawalNotification({
       email: withdrawal.user.email,
       amount: withdrawal.amount,
       asset: withdrawal.asset,
       status: decision,
       receiveAmount: withdrawal.receiveAmount,
       reason: options.rejectionReason,
-    }).catch((e) => console.warn("Withdrawal notification async failed:", e));
+    });
   } catch (e) {
     console.warn("Withdrawal notification dispatch error:", e);
   }

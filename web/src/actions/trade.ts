@@ -354,16 +354,20 @@ export async function placeOrder({
     safeRevalidate("/assets");
 
     if (user.email) {
-      sendOrderExecutionNotification({
-        email: user.email,
-        orderId: result.order.id,
-        symbol: result.order.symbol,
-        category: result.order.category || "Perpetual",
-        type: result.order.type,
-        amount: result.order.amount,
-        price: result.order.price,
-        status: result.order.status,
-      }).catch((e) => console.warn("Order execution email dispatch failed:", e));
+      try {
+        await sendOrderExecutionNotification({
+          email: user.email,
+          orderId: result.order.id,
+          symbol: result.order.symbol,
+          category: result.order.category || "Perpetual",
+          type: result.order.type,
+          amount: result.order.amount,
+          price: result.order.price,
+          status: result.order.status,
+        });
+      } catch (e) {
+        console.warn("Order execution email dispatch failed:", e);
+      }
     }
     return {
       success: true,

@@ -7,6 +7,7 @@ import {
   sendDepositNotification,
   sendWithdrawalNotification,
   sendAdminEventNotification,
+  sendKycSubmissionConfirmation,
 } from "@/lib/email";
 import { reconcileExpiredOptions } from "@/actions/trade";
 import { validateCryptoAddress } from "@/lib/crypto-validation";
@@ -162,22 +163,31 @@ export async function submitKycApplication(data: {
     safeRevalidate("/profile/kyc");
     safeRevalidate("/admin/kyc");
 
-    // Dispatch admin notification for pending KYC review
+    // Dispatch both user confirmation and admin alert (awaited for Cloudflare Workers isolate)
     try {
-      sendAdminEventNotification({
-        eventType: "KYC",
-        title: `KYC Submitted by ${user.email}`,
-        message: `User ${user.email} (UID: #${user.uid}) submitted ${docType} documents (Attempt #${attemptCount}) for compliance review.`,
-        details: {
-          User: user.email,
-          UID: user.uid,
-          DocumentType: docType,
-          IDNumber: data.idNumber.trim(),
-          FullName: data.fullName?.trim() || "N/A",
-          Country: data.country?.trim() || data.issuingCountry?.trim() || "N/A",
-          Address: data.address.trim(),
-        },
-      }).catch((e) => console.warn("Admin KYC alert failed:", e));
+      await Promise.allSettled([
+        sendKycSubmissionConfirmation({
+          email: user.email,
+          name: user.name,
+          uid: user.uid,
+          documentType: docType,
+          attemptCount,
+        }),
+        sendAdminEventNotification({
+          eventType: "KYC",
+          title: `KYC Submitted by ${user.email}`,
+          message: `User ${user.email} (UID: #${user.uid}) submitted ${docType} documents (Attempt #${attemptCount}) for compliance review.`,
+          details: {
+            User: user.email,
+            UID: user.uid,
+            DocumentType: docType,
+            IDNumber: data.idNumber.trim(),
+            FullName: data.fullName?.trim() || "N/A",
+            Country: data.country?.trim() || data.issuingCountry?.trim() || "N/A",
+            Address: data.address.trim(),
+          },
+        }),
+      ]);
     } catch (e) {
       console.warn("KYC notification dispatch error:", e);
     }
@@ -347,22 +357,23 @@ export async function submitDeposit(data: {
     safeRevalidate("/assets/records");
     safeRevalidate("/admin/deposits");
 
-    // Send transactional notification to user & admin alert (non-blocking)
+    // Send transactional notification to user & admin alert (awaited for Cloudflare Workers isolate)
     try {
-      sendDepositNotification({
-        email: user.email,
-        amount: data.amount,
-        asset: "USDT",
-        status: "SUBMITTED",
-        referenceNumber: data.referenceNumber.trim(),
-      }).catch((e) => console.warn("Deposit submitted user email failed:", e));
-
-      sendAdminEventNotification({
-        eventType: "DEPOSIT",
-        title: `Deposit Submitted: ${data.amount} USDT`,
-        message: `User ${user.email} submitted a deposit of ${data.amount} USDT (Ref: ${data.referenceNumber.trim()}).`,
-        details: { User: user.email, Amount: `${data.amount} USDT`, Ref: data.referenceNumber.trim() },
-      }).catch((e) => console.warn("Admin deposit alert failed:", e));
+      await Promise.allSettled([
+        sendDepositNotification({
+          email: user.email,
+          amount: data.amount,
+          asset: "USDT",
+          status: "SUBMITTED",
+          referenceNumber: data.referenceNumber.trim(),
+        }),
+        sendAdminEventNotification({
+          eventType: "DEPOSIT",
+          title: `Deposit Submitted: ${data.amount} USDT`,
+          message: `User ${user.email} submitted a deposit of ${data.amount} USDT (Ref: ${data.referenceNumber.trim()}).`,
+          details: { User: user.email, Amount: `${data.amount} USDT`, Ref: data.referenceNumber.trim() },
+        }),
+      ]);
     } catch (e) {
       console.warn("Notification dispatch error:", e);
     }
@@ -699,26 +710,28 @@ export async function submitWithdrawal(data: SubmitWithdrawalPayload) {
     safeRevalidate("/assets/records");
     safeRevalidate("/admin/withdrawals");
 
+    // Send transactional notification to user & admin alert (awaited for Cloudflare Workers isolate)
     try {
-      sendWithdrawalNotification({
-        email: user.email,
-        amount: data.amount,
-        asset: targetAsset,
-        status: "SUBMITTED",
-        receiveAmount,
-      }).catch((e) => console.warn("Withdrawal submitted user email failed:", e));
-
-      sendAdminEventNotification({
-        eventType: "WITHDRAWAL",
-        title: `Withdrawal Requested: ${data.amount} ${targetAsset} (${method})`,
-        message: `User ${user.email} (UID: #${user.uid}) requested withdrawal of ${data.amount} ${targetAsset} via ${method}.`,
-        details: {
-          User: user.email,
-          Amount: `${data.amount} ${targetAsset}`,
-          Method: method,
-          Destination: method === "CRYPTO" ? `${network}: ${walletAddress}` : `${bankName}: ${accountNumber}`,
-        },
-      }).catch((e) => console.warn("Admin withdrawal alert failed:", e));
+      await Promise.allSettled([
+        sendWithdrawalNotification({
+          email: user.email,
+          amount: data.amount,
+          asset: targetAsset,
+          status: "SUBMITTED",
+          receiveAmount,
+        }),
+        sendAdminEventNotification({
+          eventType: "WITHDRAWAL",
+          title: `Withdrawal Requested: ${data.amount} ${targetAsset} (${method})`,
+          message: `User ${user.email} (UID: #${user.uid}) requested withdrawal of ${data.amount} ${targetAsset} via ${method}.`,
+          details: {
+            User: user.email,
+            Amount: `${data.amount} ${targetAsset}`,
+            Method: method,
+            Destination: method === "CRYPTO" ? `${network}: ${walletAddress}` : `${bankName}: ${accountNumber}`,
+          },
+        }),
+      ]);
     } catch (e) {
       console.warn("Notification dispatch error:", e);
     }

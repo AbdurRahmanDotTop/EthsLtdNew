@@ -1034,14 +1034,15 @@ export async function createP2pOrder(data: {
     safeRevalidate("/p2p");
     safeRevalidate("/p2p/orders");
 
-    // Asynchronously notify buyer and seller
-    (async () => {
-      try {
-        const fullOrder = await prisma.p2pOrder.findUnique({
-          where: { id: newOrder.id },
-          include: { buyer: true, seller: true, ad: true },
-        });
-        if (fullOrder?.buyer?.email) {
+    // Notify buyer and seller (awaited for Cloudflare Workers isolate persistence)
+    try {
+      const fullOrder = await prisma.p2pOrder.findUnique({
+        where: { id: newOrder.id },
+        include: { buyer: true, seller: true, ad: true },
+      });
+      const notifications: Promise<any>[] = [];
+      if (fullOrder?.buyer?.email) {
+        notifications.push(
           sendP2pOrderNotification({
             email: fullOrder.buyer.email,
             role: "BUYER",
@@ -1051,9 +1052,11 @@ export async function createP2pOrder(data: {
             fiatAmount: parseFloat(fullOrder.fiatAmount || "0"),
             fiatCurrency: fullOrder.ad?.fiat || "USD",
             status: "CREATED",
-          }).catch(() => {});
-        }
-        if (fullOrder?.seller?.email) {
+          })
+        );
+      }
+      if (fullOrder?.seller?.email) {
+        notifications.push(
           sendP2pOrderNotification({
             email: fullOrder.seller.email,
             role: "SELLER",
@@ -1063,10 +1066,15 @@ export async function createP2pOrder(data: {
             fiatAmount: parseFloat(fullOrder.fiatAmount || "0"),
             fiatCurrency: fullOrder.ad?.fiat || "USD",
             status: "CREATED",
-          }).catch(() => {});
-        }
-      } catch {}
-    })();
+          })
+        );
+      }
+      if (notifications.length > 0) {
+        await Promise.allSettled(notifications);
+      }
+    } catch (e) {
+      console.warn("P2P creation notification error:", e);
+    }
 
     return { success: true, data: newOrder };
   } catch (error: any) {
@@ -1109,27 +1117,27 @@ export async function markP2pOrderPaid(id: string, proofImageUrl?: string) {
     safeRevalidate(`/p2p/order/${id}`);
     safeRevalidate("/p2p/orders");
 
-    // Asynchronously notify seller of payment submission
-    (async () => {
-      try {
-        const fullOrder = await prisma.p2pOrder.findUnique({
-          where: { id },
-          include: { buyer: true, seller: true, ad: true },
+    // Notify seller of payment submission (awaited for Cloudflare Workers isolate persistence)
+    try {
+      const fullOrder = await prisma.p2pOrder.findUnique({
+        where: { id },
+        include: { buyer: true, seller: true, ad: true },
+      });
+      if (fullOrder?.seller?.email) {
+        await sendP2pOrderNotification({
+          email: fullOrder.seller.email,
+          role: "SELLER",
+          orderNumber: fullOrder.displayId || fullOrder.id.slice(0, 8),
+          asset: fullOrder.ad?.asset || "USDT",
+          cryptoAmount: parseFloat(fullOrder.cryptoAmount || "0"),
+          fiatAmount: parseFloat(fullOrder.fiatAmount || "0"),
+          fiatCurrency: fullOrder.ad?.fiat || "USD",
+          status: "PAYMENT_MARKED",
         });
-        if (fullOrder?.seller?.email) {
-          sendP2pOrderNotification({
-            email: fullOrder.seller.email,
-            role: "SELLER",
-            orderNumber: fullOrder.displayId || fullOrder.id.slice(0, 8),
-            asset: fullOrder.ad?.asset || "USDT",
-            cryptoAmount: parseFloat(fullOrder.cryptoAmount || "0"),
-            fiatAmount: parseFloat(fullOrder.fiatAmount || "0"),
-            fiatCurrency: fullOrder.ad?.fiat || "USD",
-            status: "PAYMENT_MARKED",
-          }).catch(() => {});
-        }
-      } catch {}
-    })();
+      }
+    } catch (e) {
+      console.warn("P2P payment notification error:", e);
+    }
 
     return { success: true, data: updated };
   } catch (error: any) {
@@ -1275,23 +1283,23 @@ export async function releaseP2pOrder(id: string) {
     safeRevalidate("/p2p/orders");
     safeRevalidate("/assets");
 
-    // Asynchronously notify buyer that escrow has been released
-    (async () => {
-      try {
-        if (order.buyer?.email) {
-          sendP2pOrderNotification({
-            email: order.buyer.email,
-            role: "BUYER",
-            orderNumber: order.displayId || order.id.slice(0, 8),
-            asset,
-            cryptoAmount: cryptoAmt,
-            fiatAmount: parseFloat(order.fiatAmount || "0"),
-            fiatCurrency: order.ad?.fiat || "USD",
-            status: "COMPLETED",
-          }).catch(() => {});
-        }
-      } catch {}
-    })();
+    // Notify buyer that escrow has been released (awaited for Cloudflare Workers isolate persistence)
+    try {
+      if (order.buyer?.email) {
+        await sendP2pOrderNotification({
+          email: order.buyer.email,
+          role: "BUYER",
+          orderNumber: order.displayId || order.id.slice(0, 8),
+          asset,
+          cryptoAmount: cryptoAmt,
+          fiatAmount: parseFloat(order.fiatAmount || "0"),
+          fiatCurrency: order.ad?.fiat || "USD",
+          status: "COMPLETED",
+        });
+      }
+    } catch (e) {
+      console.warn("P2P release notification error:", e);
+    }
 
     return { success: true, data: updated };
   } catch (error: any) {
