@@ -3,6 +3,8 @@ import { Inter, Space_Grotesk, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { AppShell } from "@/components/layout/AppShell";
 import { Toaster } from "sonner";
+import { getTrackingConfig } from "@/actions/tracking";
+import { TrackingScripts, TrackingNoScript } from "@/components/tracking/TrackingScripts";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -29,17 +31,21 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const trackingConfig = await getTrackingConfig();
+
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
       <body
         className={`${inter.variable} ${spaceGrotesk.variable} ${jetbrainsMono.variable} min-h-screen bg-[#121212] text-[#F1F5F9] font-sans antialiased`}
         suppressHydrationWarning
       >
+        <TrackingNoScript config={trackingConfig} />
+        <TrackingScripts config={trackingConfig} />
         <AppShell>{children}</AppShell>
         <Toaster
           richColors

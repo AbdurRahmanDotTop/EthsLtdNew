@@ -606,3 +606,17 @@ CREATE INDEX IF NOT EXISTS "P2pDispute_openerId_status_idx" ON "P2pDispute"("ope
 CREATE INDEX IF NOT EXISTS "P2pDispute_status_idx" ON "P2pDispute"("status");
 CREATE INDEX IF NOT EXISTS "P2pPaymentMethod_userId_isActive_idx" ON "P2pPaymentMethod"("userId", "isActive");
 
+CREATE TABLE IF NOT EXISTS "TrackingConfig" (
+    "id" TEXT NOT NULL PRIMARY KEY DEFAULT 'default',
+    "metaPixelEnabled" BOOLEAN NOT NULL DEFAULT true,
+    "metaPixelId" TEXT DEFAULT '1412523413789691',
+    "metaCustomScript" TEXT,
+    "gtmEnabled" BOOLEAN NOT NULL DEFAULT true,
+    "gtmId" TEXT DEFAULT 'GTM-TD6VJP5R',
+    "gtmCustomScript" TEXT,
+    "customHeadCode" TEXT,
+    "customBodyCode" TEXT,
+    "trackAdminPages" BOOLEAN NOT NULL DEFAULT false,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

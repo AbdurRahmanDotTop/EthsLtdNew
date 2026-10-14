@@ -748,5 +748,21 @@ model FiatCurrency {
   @@index([canP2p])
 }
 
+model TrackingConfig {
+  id               String   @id @default("default")
+  metaPixelEnabled Boolean  @default(true)
+  metaPixelId      String?  @default("1412523413789691")
+  metaCustomScript String?
+  gtmEnabled       Boolean  @default(true)
+  gtmId            String?  @default("GTM-TD6VJP5R")
+  gtmCustomScript  String?
+  customHeadCode   String?
+  customBodyCode   String?
+  trackAdminPages  Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+
 
 

@@ -110,5 +110,6 @@ export type DBEmailConfig = any;
 export type DBMarket = any;
 export type DBUser = any;
 export type DBOrder = any;
+export type DBTrackingConfig = any;
 export type DBMarketWhereInput = Prisma.MarketWhereInput;
 export type DBMarketUpdateInput = Prisma.MarketUpdateInput;

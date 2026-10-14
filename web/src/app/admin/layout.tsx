@@ -23,7 +23,8 @@ import {
   Mail,
   ArrowLeftRight,
   Layers,
-  Banknote
+  Banknote,
+  Radio
 } from "lucide-react";
 import { logoutUser } from "@/actions/auth";
 import { toast } from "sonner";
@@ -50,9 +51,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     { name: "Market Management", href: "/admin/markets", icon: Coins },
     { name: "Deposit Gateways", href: "/admin/payment-methods", icon: CreditCard },
     { name: "Email Settings", href: "/admin/email-settings", icon: Mail },
+    { name: "Tracking & Pixels", href: "/admin/tracking", icon: Radio },
     { name: "Hero Slider", href: "/admin/hero-slider", icon: Presentation },
     { name: "Audit Logs", href: "/admin/audit-logs", icon: ShieldAlert },
   ];
+
 
   const handleLogout = async () => {
     await logoutUser();
