@@ -142,27 +142,49 @@ function OptionsContent() {
       if (info.success) {
         setUserBalance(info.balance);
         setUserUid(info.uid);
+        const [opens, closeds] = await Promise.all([
+          getOpenOrders("Option"),
+          getClosedOrders("Option"),
+        ]);
+        setAwaitingOrders(opens || []);
+        setHistoryOrders(closeds || []);
       } else {
         setUserBalance(0);
         setUserUid(null);
+        setAwaitingOrders([]);
+        setHistoryOrders([]);
       }
-
-      const opens = await getOpenOrders("Option");
-      setAwaitingOrders(opens || []);
-
-      const closeds = await getClosedOrders("Option");
-      setHistoryOrders(closeds || []);
     } catch (err) {
       console.error("Error loading options data:", err);
     }
   };
 
   useEffect(() => {
-    loadData();
-    const timer = window.setInterval(() => {
-      loadData();
-    }, 5000);
-    return () => window.clearInterval(timer);
+    let inFlight = false;
+    const fetchSafe = async () => {
+      if (document.hidden || inFlight) return;
+      inFlight = true;
+      try {
+        await loadData();
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    fetchSafe();
+    const timer = window.setInterval(fetchSafe, 8000);
+
+    const handleVisibility = () => {
+      if (!document.hidden) {
+        fetchSafe();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
   }, []);
 
   // Handle Switch Market Click

@@ -35,18 +35,33 @@ function safeRevalidate(path: string) {
   }
 }
 
+// High-performance edge in-memory cache to prevent D1 hits on every SSR page load
+let cachedTrackingConfig: TrackingConfigData | null = null;
+let lastTrackingFetch = 0;
+const TRACKING_CACHE_TTL = 60000; // 60 seconds
+
+export async function invalidateTrackingCache() {
+  cachedTrackingConfig = null;
+  lastTrackingFetch = 0;
+}
+
 /**
  * 1. Public query for frontend tracking injection
- * Safe fallback guarantees zero frontend runtime errors if database is cold or migrating.
+ * Cached in-memory to ensure zero latency and zero D1 load during SSR.
  */
 export async function getTrackingConfig(): Promise<TrackingConfigData> {
+  const now = Date.now();
+  if (cachedTrackingConfig && now - lastTrackingFetch < TRACKING_CACHE_TTL) {
+    return cachedTrackingConfig;
+  }
+
   try {
     const existing = await prisma.trackingConfig.findUnique({
       where: { id: "default" },
     });
 
     if (existing) {
-      return {
+      cachedTrackingConfig = {
         id: existing.id,
         metaPixelEnabled: Boolean(existing.metaPixelEnabled),
         metaPixelId: existing.metaPixelId ?? DEFAULT_TRACKING_CONFIG.metaPixelId,
@@ -58,6 +73,8 @@ export async function getTrackingConfig(): Promise<TrackingConfigData> {
         customBodyCode: existing.customBodyCode ?? null,
         trackAdminPages: Boolean(existing.trackAdminPages),
       };
+      lastTrackingFetch = now;
+      return cachedTrackingConfig;
     }
 
     // Auto-seed default configuration
@@ -76,7 +93,7 @@ export async function getTrackingConfig(): Promise<TrackingConfigData> {
       },
     });
 
-    return {
+    cachedTrackingConfig = {
       id: created.id,
       metaPixelEnabled: Boolean(created.metaPixelEnabled),
       metaPixelId: created.metaPixelId ?? DEFAULT_TRACKING_CONFIG.metaPixelId,
@@ -88,6 +105,8 @@ export async function getTrackingConfig(): Promise<TrackingConfigData> {
       customBodyCode: created.customBodyCode ?? null,
       trackAdminPages: Boolean(created.trackAdminPages),
     };
+    lastTrackingFetch = now;
+    return cachedTrackingConfig;
   } catch (err) {
     console.warn("getTrackingConfig fallback to defaults:", err);
     return DEFAULT_TRACKING_CONFIG;
@@ -161,6 +180,7 @@ export async function saveTrackingConfig(input: TrackingConfigInput) {
       console.warn("Audit log creation failed for tracking update:", auditErr);
     }
 
+    invalidateTrackingCache();
     safeRevalidate("/");
     safeRevalidate("/admin/tracking");
 
@@ -221,6 +241,7 @@ export async function resetTrackingConfig() {
       console.warn("Audit log creation failed for tracking reset:", auditErr);
     }
 
+    invalidateTrackingCache();
     safeRevalidate("/");
     safeRevalidate("/admin/tracking");
 

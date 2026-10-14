@@ -56,46 +56,80 @@ async function resolveTradeUser(requestedUserId?: string) {
   return currentUser;
 }
 
+// Per-user throttling and in-flight deduplication to prevent duplicate concurrent reconciliations
+const userLastReconcile: Record<string, number | undefined> = {};
+const inFlightReconcile: Record<string, Promise<void> | undefined> = {};
+const RECONCILE_THROTTLE_MS = 8000; // 8 seconds per user
+
 export async function reconcileExpiredOptions(userId?: string) {
-  try {
-    const now = Date.now();
-    const whereClause: { category: string; status: string; userId?: string } = {
-      category: "Option",
-      status: "Awaiting",
-    };
-    if (userId) {
-      whereClause.userId = userId;
-    }
+  const cacheKey = userId || "global";
+  const now = Date.now();
 
-    const awaitingOrders = await prisma.order.findMany({
-      where: whereClause,
-    });
-
-    for (const ord of awaitingOrders) {
-      const durationSec = ord.duration || 60;
-      const expiryTime = new Date(ord.createdAt).getTime() + durationSec * 1000;
-      if (now >= expiryTime) {
-        let currentPrice = ord.price;
-        try {
-          const cleanSymbol = ord.symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
-          const binanceRes = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${cleanSymbol}`, {
-            cache: "no-store",
-          });
-          if (binanceRes.ok) {
-            const data = await binanceRes.json();
-            if (data && data.price) {
-              currentPrice = parseFloat(data.price);
-            }
-          }
-        } catch {
-          // Fallback to order execution price if external ticker is unreachable
-        }
-        await settleOptionOrder(ord.id, currentPrice);
-      }
-    }
-  } catch (err) {
-    console.error("reconcileExpiredOptions error:", err);
+  // Return existing in-flight reconciliation if currently running
+  if (inFlightReconcile[cacheKey]) {
+    return inFlightReconcile[cacheKey];
   }
+
+  // Skip if reconciled recently for this user
+  if (now - (userLastReconcile[cacheKey] || 0) < RECONCILE_THROTTLE_MS) {
+    return;
+  }
+
+  const promise = (async () => {
+    try {
+      userLastReconcile[cacheKey] = Date.now();
+      const whereClause: { category: string; status: string; userId?: string } = {
+        category: "Option",
+        status: "Awaiting",
+      };
+      if (userId) {
+        whereClause.userId = userId;
+      }
+
+      const awaitingOrders = await prisma.order.findMany({
+        where: whereClause,
+      });
+
+      if (!awaitingOrders || awaitingOrders.length === 0) {
+        return;
+      }
+
+      const currentTime = Date.now();
+      for (const ord of awaitingOrders) {
+        const durationSec = ord.duration || 60;
+        const expiryTime = new Date(ord.createdAt).getTime() + durationSec * 1000;
+        if (currentTime >= expiryTime) {
+          let currentPrice = ord.price;
+          try {
+            const cleanSymbol = ord.symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 2000);
+            const binanceRes = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${cleanSymbol}`, {
+              cache: "no-store",
+              signal: controller.signal,
+            });
+            clearTimeout(timeoutId);
+            if (binanceRes.ok) {
+              const data = await binanceRes.json();
+              if (data && data.price) {
+                currentPrice = parseFloat(data.price);
+              }
+            }
+          } catch {
+            // Fallback to order execution price if external ticker is unreachable
+          }
+          await settleOptionOrder(ord.id, currentPrice);
+        }
+      }
+    } catch (err) {
+      console.error("reconcileExpiredOptions error:", err);
+    } finally {
+      delete inFlightReconcile[cacheKey];
+    }
+  })();
+
+  inFlightReconcile[cacheKey] = promise;
+  return promise;
 }
 
 export async function getUserTradingInfo(userId?: string) {

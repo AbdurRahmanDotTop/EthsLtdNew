@@ -5,6 +5,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 
 function safeRevalidate(path: string) {
+  invalidateMarketsCache();
   try {
     revalidatePath(path);
   } catch {
@@ -267,25 +268,55 @@ const DEFAULT_MARKETS = [
   },
 ];
 
+// Edge in-memory cache for market queries to prevent D1 hits during SSR and page navigation
+let cachedHomepageMarkets: { topTickers: any[]; homeListings: any[] } | null = null;
+let lastHomepageFetch = 0;
+const MARKETS_CACHE_TTL = 60000; // 60 seconds
+
+const cachedActiveMarkets: Record<string, any[] | undefined> = {};
+const lastActiveMarketsFetch: Record<string, number | undefined> = {};
+
+let marketsSeededChecked = true;
+
+export async function invalidateMarketsCache() {
+  cachedHomepageMarkets = null;
+  lastHomepageFetch = 0;
+  for (const k of Object.keys(cachedActiveMarkets)) {
+    delete cachedActiveMarkets[k];
+    delete lastActiveMarketsFetch[k];
+  }
+}
+
 /**
- * Auto-seeds default production markets if table is empty
+ * Auto-seeds default production markets if table is empty (runs at most once)
  */
 export async function seedDefaultMarketsIfEmpty() {
-  const count = await prisma.market.count();
-  if (count === 0) {
-    for (const m of DEFAULT_MARKETS) {
-      await prisma.market.create({ data: m });
+  if (marketsSeededChecked) return;
+  try {
+    const count = await prisma.market.count();
+    if (count === 0) {
+      for (const m of DEFAULT_MARKETS) {
+        await prisma.market.create({ data: m });
+      }
     }
+    marketsSeededChecked = true;
+  } catch {
+    // Non-fatal
   }
 }
 
 /**
  * Public: Get active markets for trade/options pages
  */
-export async function getActiveMarkets(tradingMode?: string) {
-  try {
-    await seedDefaultMarketsIfEmpty();
+export async function getActiveMarkets(tradingMode: string = "ALL") {
+  const cacheKey = tradingMode.toUpperCase();
+  const now = Date.now();
 
+  if (cachedActiveMarkets[cacheKey] && now - (lastActiveMarketsFetch[cacheKey] || 0) < MARKETS_CACHE_TTL) {
+    return cachedActiveMarkets[cacheKey];
+  }
+
+  try {
     const where: DBMarketWhereInput = { status: "ACTIVE" };
     if (tradingMode && tradingMode !== "ALL") {
       where.OR = [
@@ -298,10 +329,25 @@ export async function getActiveMarkets(tradingMode?: string) {
       where,
       orderBy: { displayOrder: "asc" },
     });
-    return markets;
+
+    if (markets.length > 0) {
+      cachedActiveMarkets[cacheKey] = markets;
+      lastActiveMarketsFetch[cacheKey] = now;
+      return markets;
+    }
+
+    // If empty, fallback to default markets filtered by mode
+    const fallback = DEFAULT_MARKETS.filter(
+      (m) => m.status === "ACTIVE" && (m.tradingModes === "ALL" || m.tradingModes === tradingMode.toUpperCase())
+    );
+    cachedActiveMarkets[cacheKey] = fallback;
+    lastActiveMarketsFetch[cacheKey] = now;
+    return fallback;
   } catch (err: unknown) {
     console.error("getActiveMarkets Error:", err);
-    return [];
+    return DEFAULT_MARKETS.filter(
+      (m) => m.status === "ACTIVE" && (m.tradingModes === "ALL" || m.tradingModes === tradingMode.toUpperCase())
+    );
   }
 }
 
@@ -309,27 +355,44 @@ export async function getActiveMarkets(tradingMode?: string) {
  * Public: Get homepage markets (top tickers and gainers/listings)
  */
 export async function getHomepageMarkets() {
+  const now = Date.now();
+  if (cachedHomepageMarkets && now - lastHomepageFetch < MARKETS_CACHE_TTL) {
+    return cachedHomepageMarkets;
+  }
+
   try {
-    await seedDefaultMarketsIfEmpty();
+    const [topTickers, homeListings] = await Promise.all([
+      prisma.market.findMany({
+        where: { isTopTicker: true, status: "ACTIVE" },
+        orderBy: { displayOrder: "asc" },
+        take: 3,
+      }),
+      prisma.market.findMany({
+        where: { isListedOnHome: true, status: "ACTIVE" },
+        orderBy: { displayOrder: "asc" },
+      }),
+    ]);
 
-    const topTickers = await prisma.market.findMany({
-      where: { isTopTicker: true, status: "ACTIVE" },
-      orderBy: { displayOrder: "asc" },
-      take: 3,
-    });
+    if (topTickers.length > 0 || homeListings.length > 0) {
+      cachedHomepageMarkets = { topTickers, homeListings };
+      lastHomepageFetch = now;
+      return cachedHomepageMarkets;
+    }
 
-    const homeListings = await prisma.market.findMany({
-      where: { isListedOnHome: true, status: "ACTIVE" },
-      orderBy: { displayOrder: "asc" },
-    });
-
-    return {
-      topTickers,
-      homeListings,
+    // Fallback in-memory defaults
+    const fallback = {
+      topTickers: DEFAULT_MARKETS.filter((m) => m.isTopTicker),
+      homeListings: DEFAULT_MARKETS.filter((m) => m.isListedOnHome),
     };
+    cachedHomepageMarkets = fallback;
+    lastHomepageFetch = now;
+    return fallback;
   } catch (err: unknown) {
     console.error("getHomepageMarkets Error:", err);
-    return { topTickers: [], homeListings: [] };
+    return {
+      topTickers: DEFAULT_MARKETS.filter((m) => m.isTopTicker),
+      homeListings: DEFAULT_MARKETS.filter((m) => m.isListedOnHome),
+    };
   }
 }
 

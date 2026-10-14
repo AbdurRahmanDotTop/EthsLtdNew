@@ -173,23 +173,49 @@ function TradeContent() {
       if (info.success) {
         setUserBalance(info.balance);
         setUserUid(info.uid);
+        const [opens, closeds] = await Promise.all([
+          getOpenOrders("Perpetual"),
+          getClosedOrders("Perpetual"),
+        ]);
+        setOpenOrders(opens || []);
+        setClosedOrders(closeds || []);
       } else {
         setUserBalance(0);
         setUserUid(null);
+        setOpenOrders([]);
+        setClosedOrders([]);
       }
-      const opens = await getOpenOrders("Perpetual");
-      setOpenOrders(opens || []);
-      const closeds = await getClosedOrders("Perpetual");
-      setClosedOrders(closeds || []);
     } catch (err) {
       console.error("Error loading trade data:", err);
     }
   };
 
   useEffect(() => {
-    loadData();
-    const timer = window.setInterval(loadData, 5000);
-    return () => window.clearInterval(timer);
+    let inFlight = false;
+    const fetchSafe = async () => {
+      if (document.hidden || inFlight) return;
+      inFlight = true;
+      try {
+        await loadData();
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    fetchSafe();
+    const timer = window.setInterval(fetchSafe, 8000);
+
+    const handleVisibility = () => {
+      if (!document.hidden) {
+        fetchSafe();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
   }, []);
 
   // Close dropdowns on outside click

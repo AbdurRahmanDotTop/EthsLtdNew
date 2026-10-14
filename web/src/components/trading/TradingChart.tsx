@@ -295,7 +295,7 @@ export default function TradingChart({
     const startPolling = () => {
       if (pollInterval || isDisposed) return;
       pollInterval = setInterval(async () => {
-        if (isDisposed) return;
+        if (isDisposed || document.hidden) return;
         try {
           const res = await fetch(
             `https://api.binance.com/api/v3/klines?symbol=${upperSymbol}&interval=${interval}&limit=2`

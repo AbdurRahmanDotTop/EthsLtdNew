@@ -3,27 +3,43 @@ import { PrismaClient as PrismaClientWasm } from '@prisma/client/wasm'
 import { PrismaD1 } from '@prisma/adapter-d1'
 import { getCloudflareContext } from '@opennextjs/cloudflare'
 
-let cachedPrisma: PrismaClientNode | null = null
+// Resilient global singleton across Cloudflare Worker isolate chunks
+const globalPrismaKey = Symbol.for("__ethsltd_prisma_d1__");
 
 function getPrismaInstance(): PrismaClientNode {
-  try {
-    const cf = getCloudflareContext({ async: false })
-    const dbBinding = (cf as any)?.env?.DB
-    if (dbBinding) {
-      if (!cachedPrisma) {
-        const adapter = new PrismaD1(dbBinding)
-        cachedPrisma = new (PrismaClientWasm as any)({ adapter }) as PrismaClientNode
-      }
-      return cachedPrisma
-    }
-  } catch {
-    // Non-Cloudflare environment (local dev, CLI scripts)
+  // 1. Check existing global singleton
+  if ((globalThis as any)[globalPrismaKey]) {
+    return (globalThis as any)[globalPrismaKey];
   }
 
-  if (!(globalThis as any).prismaGlobal) {
-    ;(globalThis as any).prismaGlobal = new PrismaClientNode()
+  try {
+    const cf = getCloudflareContext({ async: false });
+    const dbBinding = (cf as any)?.env?.DB;
+    if (dbBinding) {
+      const adapter = new PrismaD1(dbBinding);
+      const instance = new (PrismaClientWasm as any)({ adapter }) as PrismaClientNode;
+      (globalThis as any)[globalPrismaKey] = instance;
+      return instance;
+    }
+  } catch {
+    // Non-Cloudflare context or local CLI scripts
   }
-  return (globalThis as any).prismaGlobal
+
+  // 2. Local Node.js / CLI testing fallback
+  const isCloudflare = typeof (globalThis as any).WebSocketPair !== "undefined";
+  if (!isCloudflare) {
+    if (!(globalThis as any).prismaGlobal) {
+      (globalThis as any).prismaGlobal = new PrismaClientNode();
+    }
+    return (globalThis as any).prismaGlobal;
+  }
+
+  // 3. Cloudflare fallback if getCloudflareContext is not ready yet
+  if ((globalThis as any)[globalPrismaKey]) {
+    return (globalThis as any)[globalPrismaKey];
+  }
+
+  throw new Error("Cloudflare D1 binding (DB) is not yet initialized.");
 }
 
 // Resilient typed client that supports newly generated models and custom extensions

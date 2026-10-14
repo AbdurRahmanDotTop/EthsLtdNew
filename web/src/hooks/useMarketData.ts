@@ -63,7 +63,11 @@ export function useMarketData(symbol: string = "btcusdt", precision?: number) {
     // Fallback polling helper if WebSocket fails or disconnects
     const startPolling = () => {
       if (pollInterval || isDisposed) return;
-      pollInterval = setInterval(fetchRestTicker, 3000);
+      pollInterval = setInterval(() => {
+        if (!document.hidden) {
+          fetchRestTicker();
+        }
+      }, 5000);
     };
 
     // 2. Safe WebSocket connection

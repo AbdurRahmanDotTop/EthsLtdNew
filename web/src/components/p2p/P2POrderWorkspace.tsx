@@ -73,8 +73,10 @@ export function P2POrderWorkspace({ orderId }: P2POrderWorkspaceProps) {
   useEffect(() => {
     fetchOrder();
     const interval = setInterval(() => {
-      fetchOrder(true);
-    }, 4000);
+      if (!document.hidden) {
+        fetchOrder(true);
+      }
+    }, 5000);
     return () => clearInterval(interval);
   }, [orderId]);
 

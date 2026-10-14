@@ -63,13 +63,23 @@ export default function RmPrivateChatPage({ params }: { params: Promise<{ connec
   useEffect(() => {
     fetchChat();
 
-    // 3-second polling interval for real-time messages
+    // 4-second visibility-aware polling interval for real-time messages
     pollIntervalRef.current = setInterval(() => {
-      fetchChat(true);
-    }, 3000);
+      if (!document.hidden) {
+        fetchChat(true);
+      }
+    }, 4000);
+
+    const handleVisibility = () => {
+      if (!document.hidden) {
+        fetchChat(true);
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
 
     return () => {
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+      document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, [connectionId]);
 

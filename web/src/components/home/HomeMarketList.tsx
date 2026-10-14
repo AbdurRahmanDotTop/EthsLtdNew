@@ -31,8 +31,11 @@ export default function HomeMarketList({
   // Fetch real-time tickers from live backend API (Binance connected)
   useEffect(() => {
     let isDisposed = false;
+    let inFlight = false;
 
     const fetchLiveTickers = async () => {
+      if (document.hidden || inFlight || isDisposed) return;
+      inFlight = true;
       try {
         const res = await fetch("/api/markets/tickers");
         if (!res.ok) return;
@@ -42,15 +45,25 @@ export default function HomeMarketList({
         }
       } catch {
         // Suppress background poll error
+      } finally {
+        inFlight = false;
       }
     };
 
     fetchLiveTickers();
-    const interval = setInterval(fetchLiveTickers, 3000);
+    const interval = setInterval(fetchLiveTickers, 6000);
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        fetchLiveTickers();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       isDisposed = true;
       clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, []);
 

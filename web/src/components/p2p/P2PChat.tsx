@@ -33,9 +33,13 @@ export function P2PChat({ order, currentUserId }: P2PChatProps) {
 
   useEffect(() => {
     loadMessages();
-    const interval = setInterval(loadMessages, 3000);
+    const interval = setInterval(() => {
+      if (!document.hidden && isChatActive) {
+        loadMessages();
+      }
+    }, 4000);
     return () => clearInterval(interval);
-  }, [order.id]);
+  }, [order.id, isChatActive]);
 
   useEffect(() => {
     if (chatContainerRef.current) {

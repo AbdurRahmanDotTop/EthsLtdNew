@@ -62,14 +62,35 @@ export default function AssetsPage() {
   };
 
   useEffect(() => {
-    loadData(false);
+    let inFlight = false;
+    const fetchSafe = async (showLoading = false) => {
+      if (document.hidden || inFlight) return;
+      inFlight = true;
+      try {
+        await loadData(showLoading);
+      } finally {
+        inFlight = false;
+      }
+    };
 
-    // Auto-refresh every 5 seconds to keep On Order and On Hold in sync in real-time
+    fetchSafe(false);
+
+    // Auto-refresh every 10 seconds to keep On Order and On Hold in sync in real-time
     const interval = setInterval(() => {
-      loadData(false);
-    }, 5000);
+      fetchSafe(false);
+    }, 10000);
 
-    return () => clearInterval(interval);
+    const handleVisibility = () => {
+      if (!document.hidden) {
+        fetchSafe(false);
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
   }, []);
 
   // Filtered Currency Assets

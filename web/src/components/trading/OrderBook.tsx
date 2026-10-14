@@ -65,7 +65,11 @@ export default function OrderBook({ symbol, currentPrice, precision }: OrderBook
     // Fallback polling helper
     const startPolling = () => {
       if (pollInterval || isDisposed) return;
-      pollInterval = setInterval(fetchDepth, 2500);
+      pollInterval = setInterval(() => {
+        if (!document.hidden) {
+          fetchDepth();
+        }
+      }, 4000);
     };
 
     // WebSocket for continuous live depth

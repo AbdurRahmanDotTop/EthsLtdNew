@@ -5,6 +5,7 @@ import { getSession } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 
 function safeRevalidate(path: string) {
+  invalidateHeroSlidesCache();
   try {
     revalidatePath(path);
   } catch {
@@ -82,8 +83,23 @@ const DEFAULT_SLIDES = [
   },
 ];
 
+// High-performance edge in-memory cache to prevent D1 hits on every homepage SSR load
+let cachedHeroSlides: any[] | null = null;
+let lastHeroSlidesFetch = 0;
+const HERO_SLIDES_CACHE_TTL = 60000; // 60 seconds
+
+export async function invalidateHeroSlidesCache() {
+  cachedHeroSlides = null;
+  lastHeroSlidesFetch = 0;
+}
+
 // 1. Public query for Home Page Hero Slider
 export async function getHeroSlides() {
+  const now = Date.now();
+  if (cachedHeroSlides && now - lastHeroSlidesFetch < HERO_SLIDES_CACHE_TTL) {
+    return cachedHeroSlides;
+  }
+
   try {
     const slides = await prisma.heroSlide.findMany({
       where: { enabled: true },
@@ -91,6 +107,8 @@ export async function getHeroSlides() {
     });
 
     if (slides.length > 0) {
+      cachedHeroSlides = slides;
+      lastHeroSlidesFetch = now;
       return slides;
     }
 
@@ -100,12 +118,17 @@ export async function getHeroSlides() {
       for (const item of DEFAULT_SLIDES) {
         await prisma.heroSlide.create({ data: item });
       }
-      return prisma.heroSlide.findMany({
+      const seeded = await prisma.heroSlide.findMany({
         where: { enabled: true },
         orderBy: { displayOrder: "asc" },
       });
+      cachedHeroSlides = seeded;
+      lastHeroSlidesFetch = now;
+      return seeded;
     }
 
+    cachedHeroSlides = [];
+    lastHeroSlidesFetch = now;
     return [];
   } catch (err) {
     console.error("getHeroSlides error:", err);
