@@ -29,28 +29,40 @@ export async function middleware(request: NextRequest) {
     }
   }
 
+  // 0. Clean duplicate or corrupted _rsc parameters on matched routes
+  const rscList = request.nextUrl.searchParams.getAll("_rsc");
+  if (rscList.length > 1 || (rscList.length === 1 && rscList[0] === "")) {
+    const validHash = rscList.filter(Boolean).pop();
+    const cleanUrl = new URL(request.url);
+    cleanUrl.searchParams.delete("_rsc");
+    if (validHash) {
+      cleanUrl.searchParams.set("_rsc", validHash);
+    }
+    return NextResponse.redirect(cleanUrl);
+  }
+
   // 1. Admin routes protection: /admin and subroutes
   if (pathname.startsWith("/admin")) {
     if (!session) {
-      const url = new URL("/login", request.url);
+      const url = new URL("/login", request.nextUrl.origin);
       url.searchParams.set("redirect", pathname);
       return NextResponse.redirect(url);
     }
     if (session.role !== "ADMIN" && session.role !== "SUPER_ADMIN") {
       // Forbidden for non-admins, redirect to user dashboard
-      return NextResponse.redirect(new URL("/assets", request.url));
+      return NextResponse.redirect(new URL("/assets", request.nextUrl.origin));
     }
   }
 
   // 2. RM Dashboard protection: /rm/dashboard
   if (pathname.startsWith("/rm/dashboard")) {
     if (!session) {
-      const url = new URL("/login", request.url);
+      const url = new URL("/login", request.nextUrl.origin);
       url.searchParams.set("redirect", pathname);
       return NextResponse.redirect(url);
     }
     if (session.role !== "RM" && session.role !== "ADMIN" && session.role !== "SUPER_ADMIN") {
-      return NextResponse.redirect(new URL("/relationship-managers", request.url));
+      return NextResponse.redirect(new URL("/relationship-managers", request.nextUrl.origin));
     }
   }
 
@@ -65,7 +77,7 @@ export async function middleware(request: NextRequest) {
 
   if (isProtectedUserRoute) {
     if (!session) {
-      const url = new URL("/login", request.url);
+      const url = new URL("/login", request.nextUrl.origin);
       url.searchParams.set("redirect", pathname);
       return NextResponse.redirect(url);
     }
@@ -75,12 +87,12 @@ export async function middleware(request: NextRequest) {
   if (pathname === "/login" || pathname === "/register") {
     if (session) {
       if (session.role === "ADMIN" || session.role === "SUPER_ADMIN") {
-        return NextResponse.redirect(new URL("/admin", request.url));
+        return NextResponse.redirect(new URL("/admin", request.nextUrl.origin));
       }
       if (session.role === "RM") {
-        return NextResponse.redirect(new URL("/rm/dashboard", request.url));
+        return NextResponse.redirect(new URL("/rm/dashboard", request.nextUrl.origin));
       }
-      return NextResponse.redirect(new URL("/assets", request.url));
+      return NextResponse.redirect(new URL("/assets", request.nextUrl.origin));
     }
   }
 
