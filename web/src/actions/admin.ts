@@ -1137,9 +1137,9 @@ export async function getAllRmsAdmin() {
     designation: rm.rmProfile?.designation || "Senior Relationship Manager",
     department: rm.rmProfile?.department || "Private Wealth & Institutional Trading",
     bio: rm.rmProfile?.bio,
-    specialties: rm.rmProfile?.specialties,
-    rating: rm.rmProfile?.rating || 4.9,
-    experienceYears: rm.rmProfile?.experienceYears || 5,
+    rating: rm.rmProfile?.totalRatings ? Number(rm.rmProfile?.rating || 0) : 0,
+    totalRatings: rm.rmProfile?.totalRatings || 0,
+    experienceYears: rm.rmProfile?.experienceYears || 0,
     phone: rm.rmProfile?.phone || rm.phone,
     workingHours: rm.rmProfile?.workingHours || "09:00 - 21:00 UTC",
     maxClients: rm.rmProfile?.maxClients || 50,
@@ -1161,6 +1161,7 @@ export async function createRmAdmin(data: {
   phone?: string;
   workingHours?: string;
   maxClients?: number;
+  experienceYears?: number;
 }) {
   const admin = await verifyAdmin();
 
@@ -1223,8 +1224,9 @@ export async function createRmAdmin(data: {
         phone: data.phone?.trim() || null,
         workingHours: data.workingHours?.trim() || "09:00 - 21:00 UTC",
         maxClients: data.maxClients || 50,
-        rating: 4.95,
-        experienceYears: 5,
+        rating: 0,
+        totalRatings: 0,
+        experienceYears: Number(data.experienceYears) || 0,
         status: "ACTIVE",
       },
     });
@@ -1318,8 +1320,8 @@ export async function updateRmProfileAdmin(data: {
           phone: data.phone || null,
           workingHours: data.workingHours || "09:00 - 21:00 UTC",
           maxClients: data.maxClients || 50,
-          rating: data.rating || 4.9,
-          experienceYears: data.experienceYears || 5,
+          ...(data.rating !== undefined ? { rating: Number(data.rating) } : {}),
+          experienceYears: data.experienceYears !== undefined ? Number(data.experienceYears) : 0,
           status: data.status,
           ...(cleanRmCode ? { rmCode: cleanRmCode } : {}),
         },
@@ -1333,8 +1335,9 @@ export async function updateRmProfileAdmin(data: {
           phone: data.phone || null,
           workingHours: data.workingHours || "09:00 - 21:00 UTC",
           maxClients: data.maxClients || 50,
-          rating: data.rating || 4.9,
-          experienceYears: data.experienceYears || 5,
+          rating: data.rating !== undefined ? Number(data.rating) : 0,
+          totalRatings: 0,
+          experienceYears: data.experienceYears !== undefined ? Number(data.experienceYears) : 0,
           status: data.status,
         },
       });
@@ -2908,6 +2911,633 @@ export async function deleteAdminFiatCurrency(id: string) {
   safeRevalidate("/p2p");
   safeRevalidate("/p2p/post-ad");
   return { success: true };
+}
+
+// ==========================================
+// 14. ADMIN RELATIONSHIP MANAGER CRUD & DETAILS
+// ==========================================
+
+export async function getRmDetailsAdmin(rmId: string) {
+  try {
+    await verifyAdmin();
+
+    const rm = await prisma.user.findUnique({
+      where: { id: rmId },
+      include: {
+        rmProfile: true,
+        rmManagedConnections: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                uid: true,
+                name: true,
+                email: true,
+                status: true,
+                wallets: { select: { asset: true, balance: true, type: true } },
+              },
+            },
+          },
+          orderBy: { requestedAt: "desc" },
+        },
+        contractsAsRm: {
+          include: {
+            user: { select: { id: true, uid: true, name: true, email: true } },
+          },
+          orderBy: { createdAt: "desc" },
+        },
+        rmReviewsReceived: {
+          include: {
+            user: { select: { id: true, uid: true, name: true, email: true } },
+          },
+          orderBy: { createdAt: "desc" },
+        },
+      },
+    });
+
+    if (!rm) {
+      return { success: false, error: "Relationship Manager not found." };
+    }
+
+    return {
+      success: true,
+      rm: {
+        id: rm.id,
+        uid: rm.uid,
+        name: rm.name,
+        email: rm.email,
+        phone: rm.phone || rm.rmProfile?.phone,
+        status: rm.status,
+        rmProfile: rm.rmProfile,
+        clients: rm.rmManagedConnections,
+        contracts: rm.contractsAsRm,
+        reviews: rm.rmReviewsReceived,
+      },
+    };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to load RM details." };
+  }
+}
+
+export async function adminResetRmPassword(rmId: string, newPassword: string) {
+  try {
+    const admin = await verifyAdmin();
+
+    if (!newPassword || newPassword.trim().length < 6) {
+      return { success: false, error: "New password must be at least 6 characters long." };
+    }
+
+    const rm = await prisma.user.findFirst({
+      where: { id: rmId, role: "RM" },
+    });
+    if (!rm) {
+      return { success: false, error: "Relationship Manager not found." };
+    }
+
+    const passwordHash = await hashPassword(newPassword.trim());
+    await prisma.user.update({
+      where: { id: rmId },
+      data: { passwordHash },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        adminId: admin.id,
+        adminEmail: admin.email,
+        action: "RESET_RM_PASSWORD",
+        targetType: "USER",
+        targetId: rmId,
+        details: `Admin reset password for RM ${rm.email} (UID: ${rm.uid})`,
+      },
+    });
+
+    return { success: true, message: `Password for ${rm.name || rm.email} updated successfully.` };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to reset password." };
+  }
+}
+
+export async function deleteRmAdmin(rmId: string) {
+  try {
+    const admin = await verifyAdmin();
+
+    const rm = await prisma.user.findFirst({
+      where: { id: rmId, role: "RM" },
+      include: {
+        _count: {
+          select: {
+            rmManagedConnections: { where: { status: "ACTIVE" } },
+            contractsAsRm: { where: { status: "FULLY_SIGNED" } },
+          },
+        },
+      },
+    });
+
+    if (!rm) {
+      return { success: false, error: "Relationship Manager not found." };
+    }
+
+    if (rm._count.rmManagedConnections > 0) {
+      return {
+        success: false,
+        error: `Cannot delete RM '${rm.name || rm.email}': This manager has ${rm._count.rmManagedConnections} active client(s). Please reassign their clients first using the 'Reassign Clients' tab, or change status to 'SUSPENDED'.`,
+      };
+    }
+
+    // Soft delete / archive: set status to BANNED/SUSPENDED and role to USER so relationships remain safe
+    await prisma.$transaction(async (tx: DBClient) => {
+      await tx.user.update({
+        where: { id: rmId },
+        data: {
+          status: "BANNED",
+          role: "USER",
+        },
+      });
+
+      await tx.rmProfile.updateMany({
+        where: { userId: rmId },
+        data: {
+          status: "SUSPENDED",
+        },
+      });
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        adminId: admin.id,
+        adminEmail: admin.email,
+        action: "DEACTIVATE_RM",
+        targetType: "RM_PROFILE",
+        targetId: rmId,
+        details: `Deactivated RM ${rm.email} (UID: ${rm.uid}) and archived profile`,
+      },
+    });
+
+    safeRevalidate("/admin/rm");
+    safeRevalidate("/relationship-managers");
+    return { success: true, message: `Relationship Manager ${rm.name || rm.email} has been deactivated and archived safely.` };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to delete RM." };
+  }
+}
+
+// ==========================================
+// 15. ADMIN USER PROFILE CRUD & RM ASSIGNMENT
+// ==========================================
+
+export async function getUserDetailsAdmin(userId: string) {
+  try {
+    await verifyAdmin();
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        wallets: true,
+        kyc: true,
+        bankCards: true,
+        cryptoWallets: true,
+        rmClientConnections: {
+          include: {
+            rm: {
+              select: {
+                id: true,
+                uid: true,
+                name: true,
+                email: true,
+                rmProfile: { select: { rmCode: true, designation: true } },
+              },
+            },
+          },
+          orderBy: { requestedAt: "desc" },
+        },
+        rmReviewsGiven: {
+          include: {
+            rm: { select: { id: true, uid: true, name: true, email: true } },
+          },
+          orderBy: { createdAt: "desc" },
+        },
+        _count: {
+          select: {
+            orders: true,
+            transactions: true,
+            deposits: true,
+            withdrawals: true,
+          },
+        },
+      },
+    });
+
+    if (!user) {
+      return { success: false, error: "User not found." };
+    }
+
+    return { success: true, user };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to load user details." };
+  }
+}
+
+export async function updateUserProfileAdmin(
+  userId: string,
+  data: {
+    name?: string;
+    phone?: string;
+    status?: "ACTIVE" | "FROZEN" | "BANNED";
+    role?: "USER" | "ADMIN" | "SUPER_ADMIN" | "RM";
+    isKycVerified?: boolean;
+  }
+) {
+  try {
+    const admin = await verifyAdmin();
+
+    const existingUser = await prisma.user.findUnique({ where: { id: userId } });
+    if (!existingUser) {
+      return { success: false, error: "User not found." };
+    }
+
+    // Role changes require SUPER_ADMIN check
+    if (data.role && data.role !== existingUser.role && admin.role !== "SUPER_ADMIN") {
+      return { success: false, error: "Access denied. Only Super Admin can change user roles." };
+    }
+
+    const updatePayload: any = {};
+    if (data.name !== undefined) updatePayload.name = data.name.trim();
+    if (data.phone !== undefined) updatePayload.phone = data.phone?.trim() || null;
+    if (data.status) updatePayload.status = data.status;
+    if (data.role) updatePayload.role = data.role;
+    if (data.isKycVerified !== undefined) updatePayload.isKycVerified = Boolean(data.isKycVerified);
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: updatePayload,
+    });
+
+    // If upgraded to RM, ensure profile exists
+    if (data.role === "RM") {
+      const existingProfile = await prisma.rmProfile.findUnique({ where: { userId } });
+      if (!existingProfile) {
+        await prisma.rmProfile.create({
+          data: {
+            userId,
+            rmCode: `RM-${existingUser.uid}`,
+            designation: "Senior Crypto Wealth Relationship Manager",
+            department: "Private Wealth & Institutional Trading",
+            rating: 0,
+            totalRatings: 0,
+            experienceYears: 0,
+          },
+        });
+      }
+    }
+
+    await prisma.auditLog.create({
+      data: {
+        adminId: admin.id,
+        adminEmail: admin.email,
+        action: "UPDATE_USER_PROFILE",
+        targetType: "USER",
+        targetId: userId,
+        details: `Admin updated profile for ${existingUser.email} (UID: ${existingUser.uid}): ${JSON.stringify(updatePayload)}`,
+      },
+    });
+
+    safeRevalidate("/admin/users");
+    return { success: true, message: "User profile updated successfully." };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to update user profile." };
+  }
+}
+
+export async function adminAssignRmToUser(userId: string, rmId: string) {
+  try {
+    const admin = await verifyAdmin();
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) return { success: false, error: "User not found." };
+
+    const rm = await prisma.user.findFirst({
+      where: { id: rmId, role: "RM" },
+      include: { rmProfile: true },
+    });
+    if (!rm) return { success: false, error: "Selected Relationship Manager not found." };
+
+    // Terminate existing active connections for this user with other RMs
+    await prisma.rmConnection.updateMany({
+      where: { userId, rmId: { not: rmId }, status: { in: ["ACTIVE", "REQUESTED", "ACCEPTED"] } },
+      data: { status: "TERMINATED", terminatedAt: new Date(), reassignedFromRmId: rmId },
+    });
+
+    // Upsert connection with new RM
+    await prisma.rmConnection.upsert({
+      where: {
+        userId_rmId: {
+          userId,
+          rmId,
+        },
+      },
+      update: {
+        status: "ACTIVE",
+        activatedAt: new Date(),
+        responseNotes: "Assigned by Administrator",
+      },
+      create: {
+        userId,
+        rmId,
+        status: "ACTIVE",
+        activatedAt: new Date(),
+        requestMessage: "Administrative Assignment",
+        responseNotes: "Assigned by Administrator",
+      },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        adminId: admin.id,
+        adminEmail: admin.email,
+        action: "ADMIN_ASSIGN_RM",
+        targetType: "RM_CONNECTION",
+        targetId: `${userId}-${rmId}`,
+        details: `Assigned user ${user.email} (UID: ${user.uid}) to RM ${rm.name || rm.email} (${rm.rmProfile?.rmCode || rm.uid})`,
+      },
+    });
+
+    safeRevalidate("/admin/users");
+    safeRevalidate("/admin/rm");
+    safeRevalidate("/relationship-managers");
+    return { success: true, message: `Successfully assigned ${user.name || user.email} to RM ${rm.name || rm.email}.` };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to assign RM." };
+  }
+}
+
+export async function adminRemoveRmFromUser(userId: string) {
+  try {
+    const admin = await verifyAdmin();
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) return { success: false, error: "User not found." };
+
+    await prisma.rmConnection.updateMany({
+      where: { userId, status: { in: ["ACTIVE", "REQUESTED", "ACCEPTED", "CONTRACT_PENDING"] } },
+      data: { status: "TERMINATED", terminatedAt: new Date() },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        adminId: admin.id,
+        adminEmail: admin.email,
+        action: "ADMIN_REMOVE_RM",
+        targetType: "RM_CONNECTION",
+        targetId: userId,
+        details: `Removed RM assignment for user ${user.email} (UID: ${user.uid})`,
+      },
+    });
+
+    safeRevalidate("/admin/users");
+    safeRevalidate("/admin/rm");
+    return { success: true, message: "RM assignment removed successfully." };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to remove RM assignment." };
+  }
+}
+
+export async function adminResetUserPin(userId: string) {
+  try {
+    const admin = await verifyAdmin();
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) return { success: false, error: "User not found." };
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: { transactionPin: "123456" },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        adminId: admin.id,
+        adminEmail: admin.email,
+        action: "RESET_TRANSACTION_PIN",
+        targetType: "USER",
+        targetId: userId,
+        details: `Reset transaction PIN for ${user.email} (UID: ${user.uid}) to default (123456)`,
+      },
+    });
+
+    return { success: true, message: "Transaction PIN reset to default (123456)." };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to reset PIN." };
+  }
+}
+
+// ==========================================
+// 16. ADMIN RATINGS & REVIEWS CRUD
+// ==========================================
+
+async function recalculateRmStatsAdmin(rmId: string) {
+  try {
+    const reviews = await prisma.rmReview.findMany({
+      where: { rmId, status: "APPROVED" },
+      select: { rating: true },
+    });
+    const totalRatings = reviews.length;
+    const avgRating =
+      totalRatings > 0
+        ? Math.round((reviews.reduce((sum, r) => sum + r.rating, 0) / totalRatings) * 10) / 10
+        : 0;
+
+    await prisma.rmProfile.updateMany({
+      where: { userId: rmId },
+      data: {
+        rating: avgRating,
+        totalRatings,
+      },
+    });
+
+    safeRevalidate("/relationship-managers");
+    safeRevalidate("/admin/rm");
+  } catch (err) {
+    console.error("recalculateRmStatsAdmin error:", err);
+  }
+}
+
+export async function getAllRmReviewsAdmin(filters?: {
+  rmId?: string;
+  rating?: number;
+  search?: string;
+}) {
+  try {
+    await verifyAdmin();
+
+    const where: any = {};
+    if (filters?.rmId && filters.rmId !== "ALL") {
+      where.rmId = filters.rmId;
+    }
+    if (filters?.rating && filters.rating > 0) {
+      where.rating = filters.rating;
+    }
+    if (filters?.search) {
+      const q = filters.search.toLowerCase().trim();
+      where.OR = [
+        { comment: { contains: q } },
+        { user: { name: { contains: q } } },
+        { user: { email: { contains: q } } },
+        { rm: { name: { contains: q } } },
+        { rm: { email: { contains: q } } },
+      ];
+    }
+
+    const reviews = await prisma.rmReview.findMany({
+      where,
+      include: {
+        user: { select: { id: true, uid: true, name: true, email: true, avatarUrl: true } },
+        rm: {
+          select: {
+            id: true,
+            uid: true,
+            name: true,
+            email: true,
+            rmProfile: { select: { rmCode: true, designation: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    return { success: true, reviews };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to load reviews.", reviews: [] };
+  }
+}
+
+export async function createRmReviewAdmin(data: {
+  userId: string;
+  rmId: string;
+  rating: number;
+  comment?: string;
+}) {
+  try {
+    const admin = await verifyAdmin();
+
+    const cleanRating = Math.max(1, Math.min(5, Math.round(Number(data.rating))));
+    const cleanComment = data.comment?.trim() || null;
+
+    const review = await prisma.rmReview.upsert({
+      where: {
+        userId_rmId: {
+          userId: data.userId,
+          rmId: data.rmId,
+        },
+      },
+      update: {
+        rating: cleanRating,
+        comment: cleanComment,
+        status: "APPROVED",
+        updatedAt: new Date(),
+      },
+      create: {
+        userId: data.userId,
+        rmId: data.rmId,
+        rating: cleanRating,
+        comment: cleanComment,
+        status: "APPROVED",
+      },
+    });
+
+    await recalculateRmStatsAdmin(data.rmId);
+
+    await prisma.auditLog.create({
+      data: {
+        adminId: admin.id,
+        adminEmail: admin.email,
+        action: "CREATE_RM_REVIEW",
+        targetType: "RM_REVIEW",
+        targetId: review.id,
+        details: `Created review for RM ${data.rmId} by user ${data.userId} with rating ${cleanRating}`,
+      },
+    });
+
+    return { success: true, message: "Review created successfully.", review };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to create review." };
+  }
+}
+
+export async function updateRmReviewAdmin(
+  reviewId: string,
+  data: {
+    rating?: number;
+    comment?: string;
+    status?: "APPROVED" | "HIDDEN";
+  }
+) {
+  try {
+    const admin = await verifyAdmin();
+
+    const existing = await prisma.rmReview.findUnique({ where: { id: reviewId } });
+    if (!existing) return { success: false, error: "Review not found." };
+
+    const updateData: any = {};
+    if (data.rating !== undefined) {
+      updateData.rating = Math.max(1, Math.min(5, Math.round(Number(data.rating))));
+    }
+    if (data.comment !== undefined) {
+      updateData.comment = data.comment.trim() || null;
+    }
+    if (data.status) {
+      updateData.status = data.status;
+    }
+
+    const updated = await prisma.rmReview.update({
+      where: { id: reviewId },
+      data: updateData,
+    });
+
+    await recalculateRmStatsAdmin(existing.rmId);
+
+    await prisma.auditLog.create({
+      data: {
+        adminId: admin.id,
+        adminEmail: admin.email,
+        action: "UPDATE_RM_REVIEW",
+        targetType: "RM_REVIEW",
+        targetId: reviewId,
+        details: `Updated review ${reviewId}: Rating ${updated.rating}, Status ${updated.status}`,
+      },
+    });
+
+    return { success: true, message: "Review updated successfully.", review: updated };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to update review." };
+  }
+}
+
+export async function deleteRmReviewAdmin(reviewId: string) {
+  try {
+    const admin = await verifyAdmin();
+
+    const existing = await prisma.rmReview.findUnique({ where: { id: reviewId } });
+    if (!existing) return { success: false, error: "Review not found." };
+
+    await prisma.rmReview.delete({ where: { id: reviewId } });
+
+    await recalculateRmStatsAdmin(existing.rmId);
+
+    await prisma.auditLog.create({
+      data: {
+        adminId: admin.id,
+        adminEmail: admin.email,
+        action: "DELETE_RM_REVIEW",
+        targetType: "RM_REVIEW",
+        targetId: reviewId,
+        details: `Deleted review ${reviewId} for RM ID ${existing.rmId}`,
+      },
+    });
+
+    return { success: true, message: "Review deleted and statistics recalculated." };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to delete review." };
+  }
 }
 
 

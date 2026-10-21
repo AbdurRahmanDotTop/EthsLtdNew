@@ -46,7 +46,11 @@ function LoginForm() {
         toast.success(`Welcome back! Logged in as ${res.role}`);
         const destination =
           redirectTarget ||
-          (res.role === "ADMIN" || res.role === "SUPER_ADMIN" ? "/admin" : "/assets");
+          (res.role === "ADMIN" || res.role === "SUPER_ADMIN"
+            ? "/admin"
+            : res.role === "RM"
+            ? "/rm/dashboard"
+            : "/assets");
         router.push(destination);
         router.refresh();
       } else {

@@ -19,8 +19,18 @@ import {
   ChevronRight,
   TrendingUp,
   UserCheck,
+  Trash2,
+  Edit3,
+  MessageCircle,
 } from "lucide-react";
-import { getAvailableRms, sendRmConnectionRequest, cancelRmConnectionRequest } from "@/actions/rm";
+import {
+  getAvailableRms,
+  sendRmConnectionRequest,
+  cancelRmConnectionRequest,
+  submitRmReview,
+  getRmReviews,
+  deleteUserRmReview,
+} from "@/actions/rm";
 import { getAuthSession } from "@/actions/auth";
 import { toast } from "sonner";
 
@@ -36,6 +46,19 @@ export default function RelationshipManagersPage() {
   const [selectedRm, setSelectedRm] = useState<any | null>(null);
   const [connectMessage, setConnectMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Rate RM Modal State
+  const [ratingRm, setRatingRm] = useState<any | null>(null);
+  const [ratingScore, setRatingScore] = useState(5);
+  const [ratingHover, setRatingHover] = useState(0);
+  const [ratingComment, setRatingComment] = useState("");
+  const [isSubmittingRating, setIsSubmittingRating] = useState(false);
+  const [isDeletingRating, setIsDeletingRating] = useState(false);
+
+  // View Reviews Modal State
+  const [viewReviewsRm, setViewReviewsRm] = useState<any | null>(null);
+  const [reviewsList, setReviewsList] = useState<any[]>([]);
+  const [isLoadingReviews, setIsLoadingReviews] = useState(false);
 
   const loadData = async () => {
     try {
@@ -111,6 +134,81 @@ export default function RelationshipManagersPage() {
       }
     } catch (e: any) {
       toast.error(e.message);
+    }
+  };
+
+  const handleOpenRateModal = (rm: any) => {
+    if (!currentUser) {
+      toast.error("Please sign in to rate your Relationship Manager.");
+      router.push(`/login?redirect=/relationship-managers`);
+      return;
+    }
+    setRatingRm(rm);
+    if (rm.userReview) {
+      setRatingScore(rm.userReview.rating || 5);
+      setRatingComment(rm.userReview.comment || "");
+    } else {
+      setRatingScore(5);
+      setRatingComment("");
+    }
+  };
+
+  const handleSubmitRating = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!ratingRm) return;
+
+    setIsSubmittingRating(true);
+    try {
+      const res = await submitRmReview(ratingRm.id, ratingScore, ratingComment);
+      if (res.success) {
+        toast.success(res.message);
+        setRatingRm(null);
+        loadData();
+      } else {
+        toast.error(res.error || "Failed to submit rating.");
+      }
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setIsSubmittingRating(false);
+    }
+  };
+
+  const handleDeleteRating = async () => {
+    if (!ratingRm) return;
+    if (!confirm("Are you sure you want to remove your rating and review?")) return;
+
+    setIsDeletingRating(true);
+    try {
+      const res = await deleteUserRmReview(ratingRm.id);
+      if (res.success) {
+        toast.success(res.message);
+        setRatingRm(null);
+        loadData();
+      } else {
+        toast.error(res.error || "Failed to delete review.");
+      }
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setIsDeletingRating(false);
+    }
+  };
+
+  const handleOpenReviewsModal = async (rm: any) => {
+    setViewReviewsRm(rm);
+    setIsLoadingReviews(true);
+    try {
+      const res = await getRmReviews(rm.id);
+      if (res.success) {
+        setReviewsList(res.reviews || []);
+      } else {
+        setReviewsList([]);
+      }
+    } catch {
+      setReviewsList([]);
+    } finally {
+      setIsLoadingReviews(false);
     }
   };
 
@@ -276,15 +374,31 @@ export default function RelationshipManagersPage() {
 
                   {/* Highlights Bar */}
                   <div className="grid grid-cols-3 gap-2 py-2 px-3 rounded-xl bg-white/[0.03] border border-white/5 text-center text-xs">
-                    <div>
-                      <div className="text-amber-400 font-bold flex items-center justify-center gap-1">
-                        <Star className="w-3 h-3 fill-amber-400" />
-                        <span>{rm.rating.toFixed(2)}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenReviewsModal(rm)}
+                      className="group/rate text-left flex flex-col items-center justify-center hover:opacity-90 transition-opacity cursor-pointer"
+                    >
+                      {rm.totalRatings > 0 ? (
+                        <div className="text-amber-400 font-bold flex items-center justify-center gap-1">
+                          <Star className="w-3.5 h-3.5 fill-amber-400" />
+                          <span>{rm.rating.toFixed(1)}</span>
+                          <span className="text-[10px] text-gray-500 font-normal">({rm.totalRatings})</span>
+                        </div>
+                      ) : (
+                        <div className="text-gray-400 font-medium flex items-center justify-center gap-1">
+                          <Star className="w-3.5 h-3.5 text-gray-600" />
+                          <span className="text-[11px] text-gray-300">New</span>
+                        </div>
+                      )}
+                      <div className="text-[10px] text-gray-500 underline decoration-dotted group-hover/rate:text-[#00A070] transition-colors">
+                        {rm.totalRatings > 0 ? "Reviews" : "No ratings"}
                       </div>
-                      <div className="text-[10px] text-gray-500">Rating</div>
-                    </div>
+                    </button>
                     <div>
-                      <div className="text-white font-bold">{rm.experienceYears}+ Yrs</div>
+                      <div className="text-white font-bold">
+                        {rm.experienceYears > 0 ? `${rm.experienceYears}+ Yrs` : "N/A"}
+                      </div>
                       <div className="text-[10px] text-gray-500">Experience</div>
                     </div>
                     <div>
@@ -408,6 +522,26 @@ export default function RelationshipManagersPage() {
                       <span>Request Again</span>
                     </button>
                   )}
+                  {/* Client Rating Button if connected */}
+                  {status === "ACTIVE" && (
+                    <button
+                      type="button"
+                      onClick={() => handleOpenRateModal(rm)}
+                      className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-400 text-xs font-semibold transition-all cursor-pointer"
+                    >
+                      <Star className="w-3.5 h-3.5 fill-amber-400" />
+                      <span>{rm.userReview ? "Edit Your Rating & Review" : "Rate This Relationship Manager"}</span>
+                    </button>
+                  )}
+
+                  {/* View Reviews Shortcut */}
+                  <button
+                    type="button"
+                    onClick={() => handleOpenReviewsModal(rm)}
+                    className="w-full text-center text-[11px] text-gray-400 hover:text-[#00A070] transition-colors py-1 cursor-pointer"
+                  >
+                    View Verified Client Reviews ({rm.totalRatings})
+                  </button>
                 </div>
               </div>
             );
@@ -475,13 +609,193 @@ export default function RelationshipManagersPage() {
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#00A070] hover:bg-[#008f64] disabled:opacity-50 text-white text-xs font-bold shadow-lg shadow-[#00A070]/20 transition-all"
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#00A070] hover:bg-[#008f64] disabled:opacity-50 text-white text-xs font-bold shadow-lg shadow-[#00A070]/20 transition-all cursor-pointer"
                 >
                   <Send className="w-3.5 h-3.5" />
                   <span>{isSubmitting ? "Sending Request..." : "Send Connection Request"}</span>
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Rate RM Modal */}
+      {ratingRm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="relative w-full max-w-md bg-[#161822] border border-white/10 rounded-2xl p-6 shadow-2xl space-y-5">
+            <div className="flex items-center justify-between pb-3 border-b border-white/10">
+              <div>
+                <h3 className="text-base font-bold text-white">Rate Relationship Manager</h3>
+                <p className="text-xs text-gray-400 mt-0.5">{ratingRm.name} ({ratingRm.rmCode})</p>
+              </div>
+              <button
+                onClick={() => setRatingRm(null)}
+                className="text-gray-400 hover:text-white p-1 rounded-lg hover:bg-white/5 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmitRating} className="space-y-4">
+              {/* Star Rating Picker */}
+              <div className="text-center space-y-2 py-3 bg-[#10121A] rounded-xl border border-white/5">
+                <label className="block text-xs font-semibold text-gray-300">
+                  Select Rating (1 to 5 Stars):
+                </label>
+                <div className="flex items-center justify-center gap-2">
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <button
+                      key={star}
+                      type="button"
+                      onMouseEnter={() => setRatingHover(star)}
+                      onMouseLeave={() => setRatingHover(0)}
+                      onClick={() => setRatingScore(star)}
+                      className="p-1 hover:scale-110 transition-transform cursor-pointer"
+                    >
+                      <Star
+                        className={`w-7 h-7 transition-colors ${
+                          (ratingHover || ratingScore) >= star
+                            ? "fill-amber-400 text-amber-400"
+                            : "text-gray-600"
+                        }`}
+                      />
+                    </button>
+                  ))}
+                </div>
+                <div className="text-xs font-bold text-amber-400">
+                  {ratingScore === 5 && "5 Stars - Exceptional Advisory"}
+                  {ratingScore === 4 && "4 Stars - Very Good Support"}
+                  {ratingScore === 3 && "3 Stars - Satisfactory"}
+                  {ratingScore === 2 && "2 Stars - Needs Improvement"}
+                  {ratingScore === 1 && "1 Star - Unsatisfactory"}
+                </div>
+              </div>
+
+              {/* Written Review */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-300 mb-1.5">
+                  Written Feedback / Testimonial (Optional):
+                </label>
+                <textarea
+                  rows={4}
+                  value={ratingComment}
+                  onChange={(e) => setRatingComment(e.target.value)}
+                  placeholder="Share your experience working with this Relationship Manager on strategy, trade execution, or responsiveness..."
+                  className="w-full bg-[#10121A] border border-white/10 rounded-xl p-3 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#00A070] transition-colors resize-none"
+                />
+              </div>
+
+              <div className="flex items-center justify-between pt-2">
+                {ratingRm.userReview ? (
+                  <button
+                    type="button"
+                    onClick={handleDeleteRating}
+                    disabled={isDeletingRating}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-rose-400 hover:bg-rose-500/10 transition-colors"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>{isDeletingRating ? "Removing..." : "Delete Review"}</span>
+                  </button>
+                ) : <div />}
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setRatingRm(null)}
+                    className="px-4 py-2 rounded-xl text-xs font-medium text-gray-400 hover:text-white transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingRating}
+                    className="px-5 py-2 rounded-xl bg-[#00A070] hover:bg-[#008f64] disabled:opacity-50 text-white text-xs font-bold shadow-lg shadow-[#00A070]/20 transition-all cursor-pointer"
+                  >
+                    {isSubmittingRating ? "Saving..." : ratingRm.userReview ? "Update Rating" : "Submit Rating"}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* View Reviews Modal */}
+      {viewReviewsRm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="relative w-full max-w-lg bg-[#161822] border border-white/10 rounded-2xl p-6 shadow-2xl space-y-4 max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between pb-3 border-b border-white/10 shrink-0">
+              <div>
+                <h3 className="text-base font-bold text-white">Verified Client Reviews</h3>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {viewReviewsRm.name} ({viewReviewsRm.rmCode}) •{" "}
+                  {viewReviewsRm.totalRatings > 0
+                    ? `Average: ${viewReviewsRm.rating.toFixed(1)} / 5.0 (${viewReviewsRm.totalRatings} total)`
+                    : "No reviews yet"}
+                </p>
+              </div>
+              <button
+                onClick={() => setViewReviewsRm(null)}
+                className="text-gray-400 hover:text-white p-1 rounded-lg hover:bg-white/5 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+              {isLoadingReviews ? (
+                <div className="py-12 text-center text-gray-500 text-xs">
+                  Loading verified reviews...
+                </div>
+              ) : reviewsList.length === 0 ? (
+                <div className="py-12 text-center space-y-2">
+                  <Star className="w-10 h-10 text-gray-600 mx-auto" />
+                  <p className="text-xs text-gray-400">No client reviews submitted yet for this Relationship Manager.</p>
+                  <p className="text-[11px] text-gray-500">Only assigned and authenticated clients can post verified reviews.</p>
+                </div>
+              ) : (
+                reviewsList.map((rev) => (
+                  <div
+                    key={rev.id}
+                    className="p-3.5 rounded-xl bg-[#10121A] border border-white/5 space-y-2"
+                  >
+                    <div className="flex items-center justify-between text-xs">
+                      <div className="font-semibold text-white flex items-center gap-2">
+                        <span>{rev.user.name}</span>
+                        <span className="text-[10px] text-gray-500 font-mono">UID: #{rev.user.uid}</span>
+                      </div>
+                      <div className="flex items-center gap-1 text-amber-400 font-bold">
+                        <Star className="w-3.5 h-3.5 fill-amber-400" />
+                        <span>{rev.rating}.0</span>
+                      </div>
+                    </div>
+                    {rev.comment && (
+                      <p className="text-xs text-gray-300 leading-relaxed italic">
+                        "{rev.comment}"
+                      </p>
+                    )}
+                    <div className="text-[10px] text-gray-500 text-right">
+                      {new Date(rev.createdAt).toLocaleDateString(undefined, {
+                        year: "numeric",
+                        month: "short",
+                        day: "numeric",
+                      })}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="pt-2 border-t border-white/10 flex justify-end shrink-0">
+              <button
+                type="button"
+                onClick={() => setViewReviewsRm(null)}
+                className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-semibold text-white transition-colors"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

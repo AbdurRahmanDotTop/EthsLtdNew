@@ -15,10 +15,14 @@ import {
   CheckCircle,
   XCircle,
   Clock,
-  Eye,
   AlertTriangle,
   X,
   ExternalLink,
+  Star,
+  Trash2,
+  KeyRound,
+  Lock,
+  Eye,
 } from "lucide-react";
 import {
   getAllRmsAdmin,
@@ -27,21 +31,31 @@ import {
   reassignRmClientsAdmin,
   getAllContractsAdmin,
   getAllConnectionsAdmin,
+  getRmDetailsAdmin,
+  adminResetRmPassword,
+  deleteRmAdmin,
+  getAllRmReviewsAdmin,
+  updateRmReviewAdmin,
+  deleteRmReviewAdmin,
 } from "@/actions/admin";
 import { toast } from "sonner";
 
 export default function AdminRelationshipManagementPage() {
-  const [activeTab, setActiveTab] = useState<"RMS" | "CONNECTIONS" | "CONTRACTS" | "REASSIGN">("RMS");
+  const [activeTab, setActiveTab] = useState<"RMS" | "CONNECTIONS" | "CONTRACTS" | "REASSIGN" | "REVIEWS">("RMS");
   const [loading, setLoading] = useState(true);
 
   // Data states
   const [rms, setRms] = useState<any[]>([]);
   const [connections, setConnections] = useState<any[]>([]);
   const [contracts, setContracts] = useState<any[]>([]);
+  const [reviews, setReviews] = useState<any[]>([]);
 
   // Search & Filter
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
+  const [reviewSearch, setReviewSearch] = useState("");
+  const [reviewRatingFilter, setReviewRatingFilter] = useState<number>(0);
+  const [reviewRmFilter, setReviewRmFilter] = useState<string>("ALL");
 
   // Create RM Modal
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -69,17 +83,37 @@ export default function AdminRelationshipManagementPage() {
   const [reassignNotes, setReassignNotes] = useState("");
   const [isReassigning, setIsReassigning] = useState(false);
 
+  // RM Details Modal State
+  const [viewingRmDetails, setViewingRmDetails] = useState<any | null>(null);
+  const [isLoadingRmDetails, setIsLoadingRmDetails] = useState(false);
+
+  // Reset RM Password Modal State
+  const [resetPasswordRm, setResetPasswordRm] = useState<any | null>(null);
+  const [newRmPassword, setNewRmPassword] = useState("");
+  const [isSubmittingPasswordReset, setIsSubmittingPasswordReset] = useState(false);
+
+  // Edit Review Modal State
+  const [editingReview, setEditingReview] = useState<any | null>(null);
+  const [editReviewRating, setEditReviewRating] = useState<number>(5);
+  const [editReviewComment, setEditReviewComment] = useState("");
+  const [editReviewStatus, setEditReviewStatus] = useState<"APPROVED" | "HIDDEN">("APPROVED");
+  const [isSubmittingReviewEdit, setIsSubmittingReviewEdit] = useState(false);
+
   const loadAllData = async () => {
     try {
       setLoading(true);
-      const [rmsData, connsData, contractsData] = await Promise.all([
+      const [rmsData, connsData, contractsData, reviewsRes] = await Promise.all([
         getAllRmsAdmin(),
         getAllConnectionsAdmin(),
         getAllContractsAdmin(),
+        getAllRmReviewsAdmin(),
       ]);
       setRms(rmsData);
       setConnections(connsData);
       setContracts(contractsData);
+      if (reviewsRes.success && reviewsRes.reviews) {
+        setReviews(reviewsRes.reviews);
+      }
     } catch (e: any) {
       toast.error(e.message || "Failed to load relationship management records");
     } finally {
@@ -168,6 +202,135 @@ export default function AdminRelationshipManagementPage() {
     }
   };
 
+  const handleOpenRmDetails = async (rmId: string) => {
+    setIsLoadingRmDetails(true);
+    setViewingRmDetails({ id: rmId, loading: true });
+    try {
+      const res = await getRmDetailsAdmin(rmId);
+      if (res.success && res.rm) {
+        setViewingRmDetails(res.rm);
+      } else {
+        toast.error(res.error || "Failed to load RM details.");
+        setViewingRmDetails(null);
+      }
+    } catch (e: any) {
+      toast.error(e.message);
+      setViewingRmDetails(null);
+    } finally {
+      setIsLoadingRmDetails(false);
+    }
+  };
+
+  const handleDeleteRm = async (rm: any) => {
+    if (
+      !confirm(
+        `Are you sure you want to deactivate and archive Relationship Manager ${
+          rm.name || rm.email
+        }? This will set their account to inactive while keeping past transaction records safe.`
+      )
+    ) {
+      return;
+    }
+
+    try {
+      const res = await deleteRmAdmin(rm.id);
+      if (res.success) {
+        toast.success(res.message);
+        loadAllData();
+      } else {
+        toast.error(res.error || "Failed to deactivate RM.");
+      }
+    } catch (e: any) {
+      toast.error(e.message);
+    }
+  };
+
+  const handleOpenResetPassword = (rm: any) => {
+    setResetPasswordRm(rm);
+    setNewRmPassword("");
+  };
+
+  const handleSubmitPasswordReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetPasswordRm || !newRmPassword.trim()) return;
+
+    if (newRmPassword.trim().length < 6) {
+      toast.error("Password must be at least 6 characters.");
+      return;
+    }
+
+    setIsSubmittingPasswordReset(true);
+    try {
+      const res = await adminResetRmPassword(resetPasswordRm.id, newRmPassword.trim());
+      if (res.success) {
+        toast.success(res.message);
+        setResetPasswordRm(null);
+        setNewRmPassword("");
+      } else {
+        toast.error(res.error || "Failed to reset password.");
+      }
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setIsSubmittingPasswordReset(false);
+    }
+  };
+
+  const handleOpenEditReview = (rev: any) => {
+    setEditingReview(rev);
+    setEditReviewRating(rev.rating);
+    setEditReviewComment(rev.comment || "");
+    setEditReviewStatus(rev.status || "APPROVED");
+  };
+
+  const handleUpdateReviewSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingReview) return;
+
+    setIsSubmittingReviewEdit(true);
+    try {
+      const res = await updateRmReviewAdmin(editingReview.id, {
+        rating: editReviewRating,
+        comment: editReviewComment,
+        status: editReviewStatus,
+      });
+
+      if (res.success) {
+        toast.success("Review updated successfully!");
+        setEditingReview(null);
+        loadAllData();
+      } else {
+        toast.error(res.error || "Failed to update review.");
+      }
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setIsSubmittingReviewEdit(false);
+    }
+  };
+
+  const handleDeleteReview = async (reviewId: string) => {
+    if (
+      !confirm(
+        "Are you sure you want to permanently delete this client review? RM statistics will be recalculated immediately."
+      )
+    ) {
+      return;
+    }
+
+    try {
+      const res = await deleteRmReviewAdmin(reviewId);
+      if (res.success) {
+        toast.success(res.message);
+        loadAllData();
+      } else {
+        toast.error(res.error || "Failed to delete review.");
+      }
+    } catch (e: any) {
+      toast.error(e.message);
+    }
+  };
+
   const handleReassignSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!fromRmId || !toRmId) {
@@ -231,6 +394,7 @@ export default function AdminRelationshipManagementPage() {
       <div className="flex items-center gap-2 border-b border-white/10 pb-2 overflow-x-auto scrollbar-none">
         {[
           { id: "RMS", label: `Relationship Managers (${rms.length})` },
+          { id: "REVIEWS", label: `Ratings & Reviews (${reviews.length})` },
           { id: "CONNECTIONS", label: `Connection Requests (${connections.length})` },
           { id: "CONTRACTS", label: `Investment Contracts (${contracts.length})` },
           { id: "REASSIGN", label: "RM Client Reassignment" },
@@ -259,7 +423,7 @@ export default function AdminRelationshipManagementPage() {
                   <th className="py-3 px-4 font-semibold">RM Name / Code</th>
                   <th className="py-3 px-4 font-semibold">Designation & Department</th>
                   <th className="py-3 px-4 font-semibold">Active Clients</th>
-                  <th className="py-3 px-4 font-semibold">Contracts</th>
+                  <th className="py-3 px-4 font-semibold">Rating</th>
                   <th className="py-3 px-4 font-semibold">Account Status</th>
                   <th className="py-3 px-4 font-semibold text-right">Actions</th>
                 </tr>
@@ -284,8 +448,11 @@ export default function AdminRelationshipManagementPage() {
                             )}
                           </div>
                           <div>
-                            <div className="font-bold text-white">{rm.name}</div>
-                            <div className="text-[11px] text-[#00A070] font-mono">{rm.rmCode} • {rm.email}</div>
+                            <div className="font-bold text-white flex items-center gap-1.5">
+                              <span>{rm.name}</span>
+                              <span className="text-[10px] text-gray-500 font-mono">UID: #{rm.uid}</span>
+                            </div>
+                            <div className="text-[11px] text-[#00A070] font-mono font-semibold">{rm.rmCode} • {rm.email}</div>
                           </div>
                         </div>
                       </td>
@@ -298,7 +465,15 @@ export default function AdminRelationshipManagementPage() {
                         <span className="text-gray-500 text-[10px]"> / {rm.maxClients} max</span>
                       </td>
                       <td className="py-3 px-4">
-                        <span className="font-bold text-cyan-400">{rm.contractsCount}</span>
+                        {rm.totalRatings > 0 ? (
+                          <div className="flex items-center gap-1 font-bold text-amber-400">
+                            <Star className="w-3.5 h-3.5 fill-amber-400" />
+                            <span>{rm.rating.toFixed(1)}</span>
+                            <span className="text-[10px] text-gray-500 font-normal">({rm.totalRatings})</span>
+                          </div>
+                        ) : (
+                          <span className="text-gray-500 text-[11px]">New (0 reviews)</span>
+                        )}
                       </td>
                       <td className="py-3 px-4">
                         <span
@@ -312,13 +487,36 @@ export default function AdminRelationshipManagementPage() {
                         </span>
                       </td>
                       <td className="py-3 px-4 text-right">
-                        <button
-                          onClick={() => handleOpenEdit(rm)}
-                          className="px-3 py-1.5 rounded-lg bg-[#1E202B] hover:bg-[#252836] text-gray-300 hover:text-white border border-white/10 text-xs font-semibold transition-colors inline-flex items-center gap-1 cursor-pointer"
-                        >
-                          <Edit className="w-3.5 h-3.5" />
-                          <span>Edit</span>
-                        </button>
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={() => handleOpenRmDetails(rm.id)}
+                            title="View Full RM Profile & Clients"
+                            className="p-1.5 rounded-lg bg-[#1E202B] hover:bg-[#252836] text-gray-300 hover:text-white border border-white/10 text-xs font-semibold transition-colors cursor-pointer"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleOpenEdit(rm)}
+                            title="Edit RM Profile"
+                            className="p-1.5 rounded-lg bg-[#1E202B] hover:bg-[#252836] text-gray-300 hover:text-white border border-white/10 text-xs font-semibold transition-colors cursor-pointer"
+                          >
+                            <Edit className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleOpenResetPassword(rm)}
+                            title="Reset RM Password"
+                            className="p-1.5 rounded-lg bg-[#1E202B] hover:bg-[#252836] text-amber-400 hover:text-amber-300 border border-white/10 text-xs font-semibold transition-colors cursor-pointer"
+                          >
+                            <KeyRound className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteRm(rm)}
+                            title="Deactivate & Archive RM"
+                            className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 text-xs font-semibold transition-colors cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -573,6 +771,173 @@ export default function AdminRelationshipManagementPage() {
         </div>
       )}
 
+      {/* TAB 5: RATINGS & REVIEWS MANAGEMENT */}
+      {activeTab === "REVIEWS" && (
+        <div className="space-y-4">
+          {/* Filters Bar */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 p-4 bg-[#161822] border border-white/10 rounded-2xl">
+            <div className="relative flex-1">
+              <input
+                type="text"
+                placeholder="Search reviews by user, RM, or keyword..."
+                value={reviewSearch}
+                onChange={(e) => setReviewSearch(e.target.value)}
+                className="w-full bg-[#10121A] border border-white/10 rounded-xl pl-9 pr-4 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#00A070]"
+              />
+              <Search className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <select
+                value={reviewRmFilter}
+                onChange={(e) => setReviewRmFilter(e.target.value)}
+                className="bg-[#10121A] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#00A070]"
+              >
+                <option value="ALL">All Managers</option>
+                {rms.map((rm) => (
+                  <option key={rm.id} value={rm.id}>
+                    {rm.name} ({rm.rmCode})
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={reviewRatingFilter}
+                onChange={(e) => setReviewRatingFilter(Number(e.target.value))}
+                className="bg-[#10121A] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#00A070]"
+              >
+                <option value={0}>All Stars</option>
+                <option value={5}>5 Stars ★★★★★</option>
+                <option value={4}>4 Stars ★★★★☆</option>
+                <option value={3}>3 Stars ★★★☆☆</option>
+                <option value={2}>2 Stars ★★☆☆☆</option>
+                <option value={1}>1 Star ★☆☆☆☆</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Reviews Table */}
+          <div className="rounded-2xl bg-[#161822] border border-white/10 overflow-hidden shadow-xl">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-[#14151E] text-gray-400 border-b border-white/5">
+                  <tr>
+                    <th className="py-3 px-4 font-semibold">Client (Investor)</th>
+                    <th className="py-3 px-4 font-semibold">Relationship Manager</th>
+                    <th className="py-3 px-4 font-semibold">Rating Score</th>
+                    <th className="py-3 px-4 font-semibold">Client Feedback</th>
+                    <th className="py-3 px-4 font-semibold">Status</th>
+                    <th className="py-3 px-4 font-semibold">Submission Date</th>
+                    <th className="py-3 px-4 font-semibold text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5 text-gray-300">
+                  {reviews
+                    .filter((rev) => {
+                      if (reviewRmFilter !== "ALL" && rev.rm?.id !== reviewRmFilter && rev.rmId !== reviewRmFilter) {
+                        return false;
+                      }
+                      if (reviewRatingFilter > 0 && rev.rating !== reviewRatingFilter) {
+                        return false;
+                      }
+                      if (reviewSearch.trim()) {
+                        const q = reviewSearch.toLowerCase().trim();
+                        const matchUser = rev.user?.name?.toLowerCase().includes(q) || rev.user?.email?.toLowerCase().includes(q) || rev.user?.uid?.toString().includes(q);
+                        const matchRm = rev.rm?.name?.toLowerCase().includes(q) || rev.rm?.rmProfile?.rmCode?.toLowerCase().includes(q);
+                        const matchComment = rev.comment?.toLowerCase().includes(q);
+                        return matchUser || matchRm || matchComment;
+                      }
+                      return true;
+                    })
+                    .length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="py-12 text-center text-gray-500">
+                        No client ratings or reviews found matching your filters.
+                      </td>
+                    </tr>
+                  ) : (
+                    reviews
+                      .filter((rev) => {
+                        if (reviewRmFilter !== "ALL" && rev.rm?.id !== reviewRmFilter && rev.rmId !== reviewRmFilter) {
+                          return false;
+                        }
+                        if (reviewRatingFilter > 0 && rev.rating !== reviewRatingFilter) {
+                          return false;
+                        }
+                        if (reviewSearch.trim()) {
+                          const q = reviewSearch.toLowerCase().trim();
+                          const matchUser = rev.user?.name?.toLowerCase().includes(q) || rev.user?.email?.toLowerCase().includes(q) || rev.user?.uid?.toString().includes(q);
+                          const matchRm = rev.rm?.name?.toLowerCase().includes(q) || rev.rm?.rmProfile?.rmCode?.toLowerCase().includes(q);
+                          const matchComment = rev.comment?.toLowerCase().includes(q);
+                          return matchUser || matchRm || matchComment;
+                        }
+                        return true;
+                      })
+                      .map((rev) => (
+                        <tr key={rev.id} className="hover:bg-white/[0.02] transition-colors">
+                          <td className="py-3 px-4">
+                            <div className="font-bold text-white">{rev.user?.name || rev.user?.email}</div>
+                            <div className="text-[10px] text-gray-500 font-mono">UID: #{rev.user?.uid} • {rev.user?.email}</div>
+                          </td>
+                          <td className="py-3 px-4">
+                            <div className="font-semibold text-white">{rev.rm?.name}</div>
+                            <div className="text-[10px] text-[#00A070] font-mono">{rev.rm?.rmProfile?.rmCode}</div>
+                          </td>
+                          <td className="py-3 px-4">
+                            <div className="flex items-center gap-1 font-bold text-amber-400">
+                              <Star className="w-3.5 h-3.5 fill-amber-400" />
+                              <span>{rev.rating}.0 / 5</span>
+                            </div>
+                          </td>
+                          <td className="py-3 px-4 max-w-xs">
+                            {rev.comment ? (
+                              <p className="text-gray-300 italic line-clamp-2">"{rev.comment}"</p>
+                            ) : (
+                              <span className="text-gray-500 italic">No written comment</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4">
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                rev.status === "APPROVED"
+                                  ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
+                                  : "bg-gray-500/15 text-gray-400 border border-gray-500/30"
+                              }`}
+                            >
+                              {rev.status || "APPROVED"}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 text-gray-500 font-mono text-[11px]">
+                            {new Date(rev.createdAt).toLocaleDateString()}
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                onClick={() => handleOpenEditReview(rev)}
+                                title="Edit Review"
+                                className="p-1.5 rounded-lg bg-[#1E202B] hover:bg-[#252836] text-gray-300 hover:text-white border border-white/10 text-xs font-semibold transition-colors cursor-pointer"
+                              >
+                                <Edit className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteReview(rev.id)}
+                                title="Delete Review"
+                                className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 text-xs font-semibold transition-colors cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* CREATE RM MODAL */}
       {isCreateModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
@@ -805,6 +1170,267 @@ export default function AdminRelationshipManagementPage() {
                   className="px-5 py-2.5 rounded-xl bg-[#00A070] hover:bg-[#008f64] text-white font-bold shadow-lg shadow-[#00A070]/20"
                 >
                   Save Changes
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* RM Details Modal */}
+      {viewingRmDetails && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="relative w-full max-w-2xl bg-[#161822] border border-white/10 rounded-2xl p-6 shadow-2xl space-y-5 max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between pb-3 border-b border-white/10 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-[#00A070]/20 text-[#00A070] flex items-center justify-center font-bold text-sm">
+                  {viewingRmDetails.name ? viewingRmDetails.name.charAt(0) : "R"}
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <span>{viewingRmDetails.name}</span>
+                    <span className="text-xs text-[#00A070] font-mono font-bold">
+                      {viewingRmDetails.rmProfile?.rmCode}
+                    </span>
+                  </h3>
+                  <p className="text-xs text-gray-400">{viewingRmDetails.email} • UID: #{viewingRmDetails.uid}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setViewingRmDetails(null)}
+                className="text-gray-400 hover:text-white p-1 rounded-lg hover:bg-white/5 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-5 pr-1 text-xs">
+              {/* Highlight Stats */}
+              <div className="grid grid-cols-4 gap-2 text-center">
+                <div className="p-3 bg-[#10121A] rounded-xl border border-white/5">
+                  <div className="text-amber-400 font-bold text-sm flex items-center justify-center gap-1">
+                    <Star className="w-3.5 h-3.5 fill-amber-400" />
+                    <span>{viewingRmDetails.rmProfile?.rating?.toFixed(1) || "0.0"}</span>
+                  </div>
+                  <div className="text-[10px] text-gray-500 mt-0.5">
+                    Rating ({viewingRmDetails.rmProfile?.totalRatings || 0})
+                  </div>
+                </div>
+                <div className="p-3 bg-[#10121A] rounded-xl border border-white/5">
+                  <div className="text-cyan-400 font-bold text-sm">{viewingRmDetails.clients?.length || 0}</div>
+                  <div className="text-[10px] text-gray-500 mt-0.5">Assigned Clients</div>
+                </div>
+                <div className="p-3 bg-[#10121A] rounded-xl border border-white/5">
+                  <div className="text-sky-400 font-bold text-sm">{viewingRmDetails.contracts?.length || 0}</div>
+                  <div className="text-[10px] text-gray-500 mt-0.5">Contracts</div>
+                </div>
+                <div className="p-3 bg-[#10121A] rounded-xl border border-white/5">
+                  <div className="text-emerald-400 font-bold text-sm">{viewingRmDetails.status}</div>
+                  <div className="text-[10px] text-gray-500 mt-0.5">Account Status</div>
+                </div>
+              </div>
+
+              {/* Assigned Clients */}
+              <div className="space-y-2">
+                <h4 className="text-xs font-bold text-gray-200 uppercase tracking-wider flex items-center justify-between">
+                  <span>Assigned Clients ({viewingRmDetails.clients?.length || 0})</span>
+                </h4>
+                {viewingRmDetails.clients?.length === 0 ? (
+                  <div className="p-4 bg-[#10121A] rounded-xl text-center text-gray-500">
+                    No clients currently assigned to this manager.
+                  </div>
+                ) : (
+                  <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                    {viewingRmDetails.clients?.map((c: any) => (
+                      <div
+                        key={c.id}
+                        className="flex items-center justify-between p-2.5 bg-[#10121A] border border-white/5 rounded-xl"
+                      >
+                        <div>
+                          <div className="font-semibold text-white">{c.user?.name || c.user?.email}</div>
+                          <div className="text-[10px] text-gray-500 font-mono">UID: #{c.user?.uid} • {c.user?.email}</div>
+                        </div>
+                        <span
+                          className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            c.status === "ACTIVE"
+                              ? "bg-[#00A070]/15 text-[#00A070]"
+                              : "bg-gray-500/15 text-gray-400"
+                          }`}
+                        >
+                          {c.status}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Client Reviews */}
+              <div className="space-y-2">
+                <h4 className="text-xs font-bold text-gray-200 uppercase tracking-wider">
+                  Verified Client Reviews ({viewingRmDetails.reviews?.length || 0})
+                </h4>
+                {viewingRmDetails.reviews?.length === 0 ? (
+                  <div className="p-4 bg-[#10121A] rounded-xl text-center text-gray-500">
+                    No client reviews submitted yet.
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {viewingRmDetails.reviews?.map((r: any) => (
+                      <div key={r.id} className="p-3 bg-[#10121A] border border-white/5 rounded-xl space-y-1">
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold text-white">{r.user?.name || r.user?.email}</span>
+                          <div className="flex items-center gap-1 text-amber-400 font-bold">
+                            <Star className="w-3 h-3 fill-amber-400" />
+                            <span>{r.rating}.0</span>
+                          </div>
+                        </div>
+                        {r.comment && <p className="text-gray-300 italic">"{r.comment}"</p>}
+                        <div className="text-[10px] text-gray-500 text-right">
+                          {new Date(r.createdAt).toLocaleDateString()}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-white/10 flex justify-end shrink-0">
+              <button
+                onClick={() => setViewingRmDetails(null)}
+                className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-semibold text-white transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reset RM Password Modal */}
+      {resetPasswordRm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="relative w-full max-w-md bg-[#161822] border border-white/10 rounded-2xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-white/10">
+              <div className="flex items-center gap-2">
+                <KeyRound className="w-5 h-5 text-amber-400" />
+                <h3 className="text-base font-bold text-white">Reset RM Password</h3>
+              </div>
+              <button
+                onClick={() => setResetPasswordRm(null)}
+                className="text-gray-400 hover:text-white p-1 rounded-lg hover:bg-white/5 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmitPasswordReset} className="space-y-4">
+              <p className="text-xs text-gray-400">
+                Set a new login password for <strong>{resetPasswordRm.name || resetPasswordRm.email}</strong>.
+              </p>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-300 mb-1">
+                  New Password (Minimum 6 characters):
+                </label>
+                <input
+                  type="password"
+                  autoComplete="new-password"
+                  value={newRmPassword}
+                  onChange={(e) => setNewRmPassword(e.target.value)}
+                  placeholder="Enter new strong password"
+                  className="w-full bg-[#10121A] border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-[#00A070]"
+                  required
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setResetPasswordRm(null)}
+                  className="px-4 py-2 rounded-xl text-xs font-medium text-gray-400 hover:text-white transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingPasswordReset || !newRmPassword.trim()}
+                  className="px-5 py-2.5 rounded-xl bg-[#00A070] hover:bg-[#008f64] disabled:opacity-50 text-white text-xs font-bold shadow-lg shadow-[#00A070]/20 transition-all cursor-pointer"
+                >
+                  {isSubmittingPasswordReset ? "Updating..." : "Update Password"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Review Modal */}
+      {editingReview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="relative w-full max-w-md bg-[#161822] border border-white/10 rounded-2xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-white/10">
+              <h3 className="text-base font-bold text-white">Moderate Review</h3>
+              <button
+                onClick={() => setEditingReview(null)}
+                className="text-gray-400 hover:text-white p-1 rounded-lg hover:bg-white/5 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateReviewSubmit} className="space-y-4 text-xs">
+              <div>
+                <label className="block font-semibold text-gray-300 mb-1">Rating Score (1-5)</label>
+                <select
+                  value={editReviewRating}
+                  onChange={(e) => setEditReviewRating(Number(e.target.value))}
+                  className="w-full bg-[#10121A] border border-white/10 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-[#00A070]"
+                >
+                  <option value={5}>5 Stars ★★★★★</option>
+                  <option value={4}>4 Stars ★★★★☆</option>
+                  <option value={3}>3 Stars ★★★☆☆</option>
+                  <option value={2}>2 Stars ★★☆☆☆</option>
+                  <option value={1}>1 Star ★☆☆☆☆</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-gray-300 mb-1">Status</label>
+                <select
+                  value={editReviewStatus}
+                  onChange={(e) => setEditReviewStatus(e.target.value as any)}
+                  className="w-full bg-[#10121A] border border-white/10 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-[#00A070]"
+                >
+                  <option value="APPROVED">APPROVED (Visible to Public)</option>
+                  <option value="HIDDEN">HIDDEN (Moderated/Suppressed)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-gray-300 mb-1">Feedback Comment</label>
+                <textarea
+                  rows={3}
+                  value={editReviewComment}
+                  onChange={(e) => setEditReviewComment(e.target.value)}
+                  className="w-full bg-[#10121A] border border-white/10 rounded-xl p-2.5 text-white focus:outline-none focus:border-[#00A070] resize-none"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-white/10">
+                <button
+                  type="button"
+                  onClick={() => setEditingReview(null)}
+                  className="px-4 py-2 text-gray-400 hover:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingReviewEdit}
+                  className="px-5 py-2.5 rounded-xl bg-[#00A070] hover:bg-[#008f64] disabled:opacity-50 text-white font-bold shadow-lg shadow-[#00A070]/20"
+                >
+                  {isSubmittingReviewEdit ? "Saving..." : "Save Review"}
                 </button>
               </div>
             </form>

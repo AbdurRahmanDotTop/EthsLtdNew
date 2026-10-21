@@ -44,6 +44,8 @@ model User {
   rmNotifications      RmNotification[]
   conversationsAsUser  RmConversation[]     @relation("ConversationUsers")
   conversationsAsRm    RmConversation[]     @relation("ConversationRms")
+  rmReviewsGiven       RmReview[]           @relation("UserRmReviews")
+  rmReviewsReceived    RmReview[]           @relation("RmReceivedReviews")
 
   // P2P Marketplace Relations & Metrics
   p2pTotalOrders       Int                  @default(0)
@@ -393,12 +395,30 @@ model RmProfile {
   phone           String?
   email           String?
   workingHours    String   @default("09:00 - 21:00 UTC")
-  rating          Float    @default(4.9)
+  rating          Float    @default(0.0)
+  totalRatings    Int      @default(0)
   experienceYears Int      @default(5)
   status          String   @default("ACTIVE") // ACTIVE, INACTIVE, BUSY, SUSPENDED
   maxClients      Int      @default(50)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+}
+
+model RmReview {
+  id        String   @id @default(cuid())
+  userId    String
+  rmId      String
+  user      User     @relation("UserRmReviews", fields: [userId], references: [id], onDelete: Cascade)
+  rm        User     @relation("RmReceivedReviews", fields: [rmId], references: [id], onDelete: Cascade)
+  rating    Int      // 1 to 5
+  comment   String?
+  status    String   @default("APPROVED") // APPROVED, HIDDEN
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, rmId])
+  @@index([rmId, status])
+  @@index([userId])
 }
 
 model RmConnection {

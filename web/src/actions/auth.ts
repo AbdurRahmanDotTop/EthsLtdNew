@@ -59,12 +59,15 @@ export async function loginUser(formData: { email: string; password: string }) {
       uid: user.uid,
     });
 
-    // Send login alert (non-blocking for login, awaited for Cloudflare Worker isolate)
+    // Send login alert (non-blocking for login, protected with timeout cap)
     try {
-      await sendLoginAlertNotification({
-        email: user.email,
-        time: new Date().toUTCString(),
-      }).catch((e) => console.warn("Login alert failed:", e));
+      await Promise.race([
+        sendLoginAlertNotification({
+          email: user.email,
+          time: new Date().toUTCString(),
+        }).catch((e) => console.warn("Login alert failed:", e)),
+        new Promise((resolve) => setTimeout(resolve, 800)),
+      ]);
     } catch {}
 
     const isAdmin = user.role === "ADMIN" || user.role === "SUPER_ADMIN";

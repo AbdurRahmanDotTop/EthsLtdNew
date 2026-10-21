@@ -90,18 +90,25 @@ export async function getAvailableRms(params?: { search?: string; service?: stri
       orderBy: { createdAt: "desc" },
     });
 
-    // If a user is logged in, attach their current connection & contract state for each RM
+    // If a user is logged in, attach their current connection & contract state for each RM, and their review
     let userConnections: Record<string, any> = {};
+    let userReviews: Record<string, { id: string; rating: number; comment?: string | null; createdAt: Date }> = {};
     if (currentUserId) {
-      const connections = await prisma.rmConnection.findMany({
-        where: { userId: currentUserId },
-        include: {
-          contracts: {
-            orderBy: { createdAt: "desc" },
-            take: 1,
+      const [connections, reviews] = await Promise.all([
+        prisma.rmConnection.findMany({
+          where: { userId: currentUserId },
+          include: {
+            contracts: {
+              orderBy: { createdAt: "desc" },
+              take: 1,
+            },
           },
-        },
-      });
+        }),
+        prisma.rmReview.findMany({
+          where: { userId: currentUserId },
+          select: { id: true, rmId: true, rating: true, comment: true, createdAt: true },
+        }),
+      ]);
 
       for (const conn of connections) {
         userConnections[conn.rmId] = {
@@ -112,10 +119,23 @@ export async function getAvailableRms(params?: { search?: string; service?: stri
           contract: conn.contracts[0] || null,
         };
       }
+
+      for (const rev of reviews) {
+        userReviews[rev.rmId] = {
+          id: rev.id,
+          rating: rev.rating,
+          comment: rev.comment,
+          createdAt: rev.createdAt,
+        };
+      }
     }
 
     const mapped = rms.map((rm: any) => {
       const userConn = userConnections[rm.id] || null;
+      const userRev = userReviews[rm.id] || null;
+      const totalRatings = rm.rmProfile?.totalRatings || 0;
+      const actualRating = totalRatings > 0 ? Number(rm.rmProfile?.rating || 0) : 0;
+
       return {
         id: rm.id,
         uid: rm.uid,
@@ -126,14 +146,16 @@ export async function getAvailableRms(params?: { search?: string; service?: stri
         designation: rm.rmProfile?.designation || "Senior Crypto Relationship Manager",
         department: rm.rmProfile?.department || "Private Wealth & Institutional Trading",
         bio: rm.rmProfile?.bio || "Experienced digital asset advisor.",
-        specialties: rm.rmProfile?.specialties || "Perpetuals, Options, Portfolio Allocation",
-        rating: rm.rmProfile?.rating || 4.9,
-        experienceYears: rm.rmProfile?.experienceYears || 5,
+        specialties: rm.rmProfile?.specialties || "Perpetual Futures, Spot Hedging, Options",
+        rating: actualRating,
+        totalRatings,
+        experienceYears: rm.rmProfile?.experienceYears || 0,
         workingHours: rm.rmProfile?.workingHours || "09:00 - 21:00 UTC",
         phone: rm.rmProfile?.phone || null,
         activeClientsCount: rm._count.rmManagedConnections,
         maxClients: rm.rmProfile?.maxClients || 50,
         userRelationship: userConn,
+        userReview: userRev,
       };
     });
 
@@ -175,8 +197,9 @@ export async function getRmPublicProfile(rmId: string) {
         department: rm.rmProfile?.department,
         bio: rm.rmProfile?.bio,
         specialties: rm.rmProfile?.specialties,
-        rating: rm.rmProfile?.rating,
-        experienceYears: rm.rmProfile?.experienceYears,
+        rating: (rm.rmProfile?.totalRatings || 0) > 0 ? Number(rm.rmProfile?.rating || 0) : 0,
+        totalRatings: rm.rmProfile?.totalRatings || 0,
+        experienceYears: rm.rmProfile?.experienceYears || 0,
         workingHours: rm.rmProfile?.workingHours,
         phone: rm.rmProfile?.phone,
         activeClientsCount: rm._count.rmManagedConnections,
@@ -1171,4 +1194,190 @@ According to the legal and regulatory agreements of the **"Virtual Currency Inte
 #### 7. GOVERNING LAW & DISPUTE RESOLUTION
 This agreement is governed by the laws of England and Wales and international private digital asset regulatory conventions. Any disputes arising hereunder shall be subject to amicable settlement, failing which they shall be submitted to the London Court of International Arbitration (LCIA).
   `.trim();
+}
+
+// ==========================================
+// 8. USER-TO-RM RATING & REVIEW SYSTEM
+// ==========================================
+
+async function recalculateRmRatingStats(rmId: string) {
+  try {
+    const approvedReviews = await prisma.rmReview.findMany({
+      where: { rmId, status: "APPROVED" },
+      select: { rating: true },
+    });
+    const totalRatings = approvedReviews.length;
+    const avgRating =
+      totalRatings > 0
+        ? Math.round((approvedReviews.reduce((sum, r) => sum + r.rating, 0) / totalRatings) * 10) / 10
+        : 0;
+
+    await prisma.rmProfile.updateMany({
+      where: { userId: rmId },
+      data: {
+        rating: avgRating,
+        totalRatings,
+      },
+    });
+
+    safeRevalidate("/relationship-managers");
+    safeRevalidate("/admin/rm");
+  } catch (err) {
+    console.error("recalculateRmRatingStats error:", err);
+  }
+}
+
+export async function submitRmReview(rmId: string, rating: number, comment?: string) {
+  try {
+    const user = await verifyAuthUser();
+
+    if (user.id === rmId) {
+      return { success: false, error: "You cannot rate your own Relationship Manager account." };
+    }
+
+    // Verify target RM exists and has RM role
+    const rmUser = await prisma.user.findFirst({
+      where: { id: rmId, role: "RM" },
+      include: { rmProfile: true },
+    });
+
+    if (!rmUser) {
+      return { success: false, error: "Relationship Manager not found or inactive." };
+    }
+
+    // Business rule: User can only rate an RM with whom they have an active or accepted connection
+    const connection = await prisma.rmConnection.findFirst({
+      where: {
+        userId: user.id,
+        rmId,
+        status: { in: ["ACTIVE", "ACCEPTED", "CONTRACT_PENDING"] },
+      },
+    });
+
+    if (!connection) {
+      return {
+        success: false,
+        error: "You can only rate a Relationship Manager who is assigned or actively connected with you.",
+      };
+    }
+
+    // Validate rating
+    const cleanRating = Math.round(Number(rating));
+    if (isNaN(cleanRating) || cleanRating < 1 || cleanRating > 5) {
+      return { success: false, error: "Rating score must be between 1 and 5 stars." };
+    }
+
+    const cleanComment = comment?.trim().slice(0, 1000) || null;
+
+    // Upsert review (enforces single review per user-RM, supports updating)
+    const review = await prisma.rmReview.upsert({
+      where: {
+        userId_rmId: {
+          userId: user.id,
+          rmId,
+        },
+      },
+      update: {
+        rating: cleanRating,
+        comment: cleanComment,
+        status: "APPROVED",
+        updatedAt: new Date(),
+      },
+      create: {
+        userId: user.id,
+        rmId,
+        rating: cleanRating,
+        comment: cleanComment,
+        status: "APPROVED",
+      },
+    });
+
+    // Automatically recalculate RM average rating and total counts
+    await recalculateRmRatingStats(rmId);
+
+    return {
+      success: true,
+      message: "Thank you! Your rating and review have been saved successfully.",
+      review,
+    };
+  } catch (error: any) {
+    console.error("submitRmReview error:", error);
+    return { success: false, error: error.message || "Failed to submit rating." };
+  }
+}
+
+export async function getUserRmReview(rmId: string) {
+  try {
+    const user = await verifyAuthUser();
+    const review = await prisma.rmReview.findUnique({
+      where: {
+        userId_rmId: {
+          userId: user.id,
+          rmId,
+        },
+      },
+    });
+
+    return { success: true, review };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
+export async function getRmReviews(rmId: string) {
+  try {
+    const reviews = await prisma.rmReview.findMany({
+      where: { rmId, status: "APPROVED" },
+      include: {
+        user: {
+          select: {
+            id: true,
+            uid: true,
+            name: true,
+            avatarUrl: true,
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    });
+
+    const formatted = reviews.map((r) => ({
+      id: r.id,
+      rating: r.rating,
+      comment: r.comment,
+      createdAt: r.createdAt,
+      user: {
+        uid: r.user.uid,
+        name: r.user.name || `Investor #${r.user.uid}`,
+        avatarUrl: r.user.avatarUrl,
+      },
+    }));
+
+    return { success: true, reviews: formatted };
+  } catch (error: any) {
+    console.error("getRmReviews error:", error);
+    return { success: false, error: error.message, reviews: [] };
+  }
+}
+
+export async function deleteUserRmReview(rmId: string) {
+  try {
+    const user = await verifyAuthUser();
+
+    await prisma.rmReview.deleteMany({
+      where: {
+        userId: user.id,
+        rmId,
+      },
+    });
+
+    // Recalculate stats
+    await recalculateRmRatingStats(rmId);
+
+    return { success: true, message: "Your review has been removed." };
+  } catch (error: any) {
+    console.error("deleteUserRmReview error:", error);
+    return { success: false, error: error.message || "Failed to delete review." };
+  }
 }
