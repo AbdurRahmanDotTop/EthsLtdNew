@@ -14,6 +14,15 @@ import {
   SendEmailOptions,
 } from "@/lib/email";
 
+function sanitizeRmCode(code: string | null | undefined, fallbackUid?: number | string): string {
+  if (!code) return fallbackUid ? `RM-${fallbackUid}` : "RM";
+  const trimmed = code.trim();
+  if (/[@#$%^&*+=<>?/\\]/.test(trimmed)) {
+    return fallbackUid ? `RM-${fallbackUid}` : "RM";
+  }
+  return trimmed;
+}
+
 function safeRevalidate(path: string) {
   try {
     revalidatePath(path);
@@ -1124,7 +1133,7 @@ export async function getAllRmsAdmin() {
     email: rm.email,
     status: rm.status,
     avatarUrl: rm.avatarUrl || rm.rmProfile?.avatarUrl,
-    rmCode: rm.rmProfile?.rmCode || `RM-${rm.uid}`,
+    rmCode: sanitizeRmCode(rm.rmProfile?.rmCode, rm.uid),
     designation: rm.rmProfile?.designation || "Senior Relationship Manager",
     department: rm.rmProfile?.department || "Private Wealth & Institutional Trading",
     bio: rm.rmProfile?.bio,
@@ -1168,7 +1177,19 @@ export async function createRmAdmin(data: {
 
   const rawPassword = data.password || "Rm@123456";
   const passwordHash = await hashPassword(rawPassword);
-  const rmCode = data.rmCode?.trim() || `RM-${uid}`;
+
+  let rmCode = data.rmCode?.trim();
+  if (rmCode) {
+    // Validate format: RM Code / User ID must be alphanumeric and cannot contain password characters
+    if (!/^[A-Za-z0-9_-]{2,30}$/.test(rmCode) || /[@#$%^&*+=<>?/\\]/.test(rmCode)) {
+      return {
+        success: false,
+        error: "Invalid RM Code / User ID format. RM Code must be alphanumeric (e.g. 1004, 1005, RM-1005) and cannot contain passwords or special characters (@, #, $, etc.)."
+      };
+    }
+  } else {
+    rmCode = `RM-${uid}`;
+  }
 
   // Check unique rmCode
   const existingCode = await prisma.rmProfile.findUnique({ where: { rmCode } });
@@ -1253,9 +1274,29 @@ export async function updateRmProfileAdmin(data: {
   maxClients?: number;
   rating?: number;
   experienceYears?: number;
+  rmCode?: string;
 }): Promise<{ success: boolean; error?: string }> {
   try {
     const admin = await verifyAdmin();
+
+    let cleanRmCode: string | undefined = undefined;
+    if (data.rmCode !== undefined) {
+      cleanRmCode = data.rmCode.trim();
+      if (cleanRmCode) {
+        if (!/^[A-Za-z0-9_-]{2,30}$/.test(cleanRmCode) || /[@#$%^&*+=<>?/\\]/.test(cleanRmCode)) {
+          return {
+            success: false,
+            error: "Invalid RM Code / User ID format. Must be alphanumeric (e.g. 1004, 1005, RM-1005) and cannot contain passwords or special characters.",
+          };
+        }
+        const existing = await prisma.rmProfile.findFirst({
+          where: { rmCode: cleanRmCode, NOT: { userId: data.userId } },
+        });
+        if (existing) {
+          return { success: false, error: "This RM Code is already in use by another manager." };
+        }
+      }
+    }
 
     await prisma.$transaction(async (tx: DBClient) => {
       await tx.user.update({
@@ -1280,10 +1321,11 @@ export async function updateRmProfileAdmin(data: {
           rating: data.rating || 4.9,
           experienceYears: data.experienceYears || 5,
           status: data.status,
+          ...(cleanRmCode ? { rmCode: cleanRmCode } : {}),
         },
         create: {
           userId: data.userId,
-          rmCode: `RM-${Date.now().toString().slice(-4)}`,
+          rmCode: cleanRmCode || `RM-${Date.now().toString().slice(-4)}`,
           designation: data.designation,
           department: data.department,
           bio: data.bio,

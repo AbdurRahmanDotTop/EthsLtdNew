@@ -34,6 +34,16 @@ async function verifyAuthUser() {
 // 1. RM LISTING & DISCOVERY
 // ==========================================
 
+function sanitizeRmCode(code: string | null | undefined, fallbackUid?: number | string): string {
+  if (!code) return fallbackUid ? `RM-${fallbackUid}` : "RM";
+  const trimmed = code.trim();
+  // Security guard: Never expose values with password-like special characters (@, #, $, %, etc.)
+  if (/[@#$%^&*+=<>?/\\]/.test(trimmed)) {
+    return fallbackUid ? `RM-${fallbackUid}` : "RM";
+  }
+  return trimmed;
+}
+
 export async function getAvailableRms(params?: { search?: string; service?: string }) {
   try {
     const session = await getSession();
@@ -46,13 +56,18 @@ export async function getAvailableRms(params?: { search?: string; service?: stri
 
     if (params?.search) {
       const q = params.search.toLowerCase();
-      where.OR = [
+      const numQ = Number(q);
+      const orConditions: any[] = [
         { name: { contains: q } },
         { email: { contains: q } },
         { rmProfile: { rmCode: { contains: q } } },
         { rmProfile: { designation: { contains: q } } },
         { rmProfile: { specialties: { contains: q } } },
       ];
+      if (!isNaN(numQ) && numQ > 0) {
+        orConditions.push({ uid: numQ });
+      }
+      where.OR = orConditions;
     }
 
     const rms = await prisma.user.findMany({
@@ -107,7 +122,7 @@ export async function getAvailableRms(params?: { search?: string; service?: stri
         name: rm.name || "Relationship Manager",
         email: rm.email,
         avatarUrl: rm.avatarUrl || rm.rmProfile?.avatarUrl || null,
-        rmCode: rm.rmProfile?.rmCode || `RM-${rm.uid}`,
+        rmCode: sanitizeRmCode(rm.rmProfile?.rmCode, rm.uid),
         designation: rm.rmProfile?.designation || "Senior Crypto Relationship Manager",
         department: rm.rmProfile?.department || "Private Wealth & Institutional Trading",
         bio: rm.rmProfile?.bio || "Experienced digital asset advisor.",
@@ -155,7 +170,7 @@ export async function getRmPublicProfile(rmId: string) {
         name: rm.name,
         email: rm.email,
         avatarUrl: rm.avatarUrl || rm.rmProfile?.avatarUrl,
-        rmCode: rm.rmProfile?.rmCode || `RM-${rm.uid}`,
+        rmCode: sanitizeRmCode(rm.rmProfile?.rmCode, rm.uid),
         designation: rm.rmProfile?.designation,
         department: rm.rmProfile?.department,
         bio: rm.rmProfile?.bio,

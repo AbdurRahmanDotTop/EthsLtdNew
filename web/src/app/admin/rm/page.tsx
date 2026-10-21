@@ -135,6 +135,7 @@ export default function AdminRelationshipManagementPage() {
     setEditingRm({
       userId: rm.id,
       name: rm.name || "",
+      rmCode: rm.rmCode || "",
       designation: rm.designation || "",
       department: rm.department || "",
       status: rm.status === "BANNED" ? "SUSPENDED" : "ACTIVE",
@@ -617,6 +618,7 @@ export default function AdminRelationshipManagementPage() {
                   <label className="block font-semibold text-gray-300 mb-1">Password (Default: Rm@123456)</label>
                   <input
                     type="password"
+                    autoComplete="new-password"
                     value={newRmForm.password}
                     onChange={(e) => setNewRmForm({ ...newRmForm, password: e.target.value })}
                     placeholder="Rm@123456"
@@ -624,9 +626,10 @@ export default function AdminRelationshipManagementPage() {
                   />
                 </div>
                 <div>
-                  <label className="block font-semibold text-gray-300 mb-1">Unique RM Code (e.g. RM-1004)</label>
+                  <label className="block font-semibold text-gray-300 mb-1">Unique RM User ID / Code (e.g. 1005, RM-1005)</label>
                   <input
                     type="text"
+                    autoComplete="off"
                     value={newRmForm.rmCode}
                     onChange={(e) => setNewRmForm({ ...newRmForm, rmCode: e.target.value })}
                     placeholder="Leave blank to auto-generate"
@@ -711,14 +714,27 @@ export default function AdminRelationshipManagementPage() {
             </div>
 
             <form onSubmit={handleUpdateRmSubmit} className="space-y-4 text-xs">
-              <div>
-                <label className="block font-semibold text-gray-300 mb-1">Name</label>
-                <input
-                  type="text"
-                  value={editingRm.name}
-                  onChange={(e) => setEditingRm({ ...editingRm, name: e.target.value })}
-                  className="w-full bg-[#10121A] border border-white/10 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-[#00A070]"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-gray-300 mb-1">Name</label>
+                  <input
+                    type="text"
+                    value={editingRm.name}
+                    onChange={(e) => setEditingRm({ ...editingRm, name: e.target.value })}
+                    className="w-full bg-[#10121A] border border-white/10 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-[#00A070]"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-gray-300 mb-1">RM User ID / Code</label>
+                  <input
+                    type="text"
+                    autoComplete="off"
+                    value={editingRm.rmCode || ""}
+                    onChange={(e) => setEditingRm({ ...editingRm, rmCode: e.target.value })}
+                    placeholder="e.g. 1005, RM-1005"
+                    className="w-full bg-[#10121A] border border-white/10 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-[#00A070]"
+                  />
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
