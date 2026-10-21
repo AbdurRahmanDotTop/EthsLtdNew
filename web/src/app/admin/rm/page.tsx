@@ -206,7 +206,7 @@ export default function AdminRelationshipManagementPage() {
     setIsLoadingRmDetails(true);
     setViewingRmDetails({ id: rmId, loading: true });
     try {
-      const res = await getRmDetailsAdmin(rmId);
+      const res: any = await getRmDetailsAdmin(rmId);
       if (res.success && res.rm) {
         setViewingRmDetails(res.rm);
       } else {

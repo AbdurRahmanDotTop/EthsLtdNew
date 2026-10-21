@@ -12,12 +12,12 @@ function safeRevalidate(path: string) {
   }
 }
 
-async function verifyAuthUser() {
+async function verifyAuthUser(): Promise<any> {
   const session = await getSession();
   if (!session || !session.userId) {
     throw new Error("Authentication required. Please log in.");
   }
-  const user = await prisma.user.findUnique({
+  const user: any = await prisma.user.findUnique({
     where: { id: session.userId },
     include: { rmProfile: true },
   });
@@ -166,9 +166,9 @@ export async function getAvailableRms(params?: { search?: string; service?: stri
   }
 }
 
-export async function getRmPublicProfile(rmId: string) {
+export async function getRmPublicProfile(rmId: string): Promise<{ success: boolean; rm?: any; error?: string }> {
   try {
-    const rm = await prisma.user.findFirst({
+    const rm: any = await prisma.user.findFirst({
       where: { id: rmId, role: "RM" },
       include: {
         rmProfile: true,
@@ -224,7 +224,7 @@ export async function sendRmConnectionRequest(rmId: string, message?: string) {
       return { success: false, error: "You cannot connect with your own account." };
     }
 
-    const rm = await prisma.user.findFirst({
+    const rm: any = await prisma.user.findFirst({
       where: { id: rmId, role: "RM", status: "ACTIVE" },
       include: { rmProfile: true },
     });

@@ -164,10 +164,10 @@ export default function AdminUsersPage() {
     });
 
     try {
-      const res = await getUserDetailsAdmin(user.id);
+      const res: any = await getUserDetailsAdmin(user.id);
       if (res.success && res.user) {
         setFullUserDetails(res.user);
-        const activeConn = res.user.rmClientConnections?.find(
+        const activeConn = (res.user.rmClientConnections || [])?.find(
           (c: any) => c.status === "ACTIVE" || c.status === "ACCEPTED" || c.status === "REQUESTED"
         );
         setSelectedRmId(activeConn ? activeConn.rmId : "");

@@ -2917,11 +2917,11 @@ export async function deleteAdminFiatCurrency(id: string) {
 // 14. ADMIN RELATIONSHIP MANAGER CRUD & DETAILS
 // ==========================================
 
-export async function getRmDetailsAdmin(rmId: string) {
+export async function getRmDetailsAdmin(rmId: string): Promise<{ success: boolean; rm?: any; error?: string }> {
   try {
     await verifyAdmin();
 
-    const rm = await prisma.user.findUnique({
+    const rm: any = await prisma.user.findUnique({
       where: { id: rmId },
       include: {
         rmProfile: true,
@@ -3021,7 +3021,7 @@ export async function deleteRmAdmin(rmId: string) {
   try {
     const admin = await verifyAdmin();
 
-    const rm = await prisma.user.findFirst({
+    const rm: any = await prisma.user.findFirst({
       where: { id: rmId, role: "RM" },
       include: {
         _count: {
@@ -3085,11 +3085,11 @@ export async function deleteRmAdmin(rmId: string) {
 // 15. ADMIN USER PROFILE CRUD & RM ASSIGNMENT
 // ==========================================
 
-export async function getUserDetailsAdmin(userId: string) {
+export async function getUserDetailsAdmin(userId: string): Promise<{ success: boolean; user?: any; error?: string }> {
   try {
     await verifyAdmin();
 
-    const user = await prisma.user.findUnique({
+    const user: any = await prisma.user.findUnique({
       where: { id: userId },
       include: {
         wallets: true,
