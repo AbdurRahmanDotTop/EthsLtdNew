@@ -2952,7 +2952,7 @@ export async function getRmDetailsAdmin(rmId: string): Promise<{ success: boolea
           },
           orderBy: { createdAt: "desc" },
         },
-      },
+      } as any,
     });
 
     if (!rm) {
@@ -3124,7 +3124,7 @@ export async function getUserDetailsAdmin(userId: string): Promise<{ success: bo
             withdrawals: true,
           },
         },
-      },
+      } as any,
     });
 
     if (!user) {

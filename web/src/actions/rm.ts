@@ -1209,10 +1209,10 @@ async function recalculateRmRatingStats(rmId: string) {
     const totalRatings = approvedReviews.length;
     const avgRating =
       totalRatings > 0
-        ? Math.round((approvedReviews.reduce((sum, r) => sum + r.rating, 0) / totalRatings) * 10) / 10
+        ? Math.round((approvedReviews.reduce((sum: number, r: any) => sum + (r.rating || 0), 0) / totalRatings) * 10) / 10
         : 0;
 
-    await prisma.rmProfile.updateMany({
+    await (prisma.rmProfile as any).updateMany({
       where: { userId: rmId },
       data: {
         rating: avgRating,
