@@ -125,6 +125,10 @@ const prisma = new Proxy({} as ExtendedPrismaClient, {
   },
 })
 
+export function resetPrismaInstance() {
+  (globalThis as any)[globalPrismaKey] = null;
+}
+
 export default prisma
 export { prisma }
 

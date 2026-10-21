@@ -71,6 +71,20 @@ export default function RelationshipManagersPage() {
         setRms(res.rms);
       }
     } catch (e: any) {
+      const errMsg = String(e?.message || "");
+      if (
+        errMsg.includes("Failed to find Server Action") ||
+        errMsg.includes("older or newer deployment") ||
+        errMsg.includes("503")
+      ) {
+        const lastReload = sessionStorage.getItem("__ethsltd_rms_page_reload");
+        const now = Date.now();
+        if (!lastReload || now - parseInt(lastReload, 10) > 10000) {
+          sessionStorage.setItem("__ethsltd_rms_page_reload", String(now));
+          window.location.reload();
+          return;
+        }
+      }
       toast.error(e.message || "Failed to load Relationship Managers");
     } finally {
       setLoading(false);

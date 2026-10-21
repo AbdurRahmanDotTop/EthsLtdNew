@@ -53,8 +53,22 @@ export default function AssetsPage() {
         return;
       }
       setAssetData(data);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failed to load asset summary:", err);
+      const errMsg = String(err?.message || "");
+      if (
+        errMsg.includes("Failed to find Server Action") ||
+        errMsg.includes("older or newer deployment") ||
+        errMsg.includes("503")
+      ) {
+        const lastReload = sessionStorage.getItem("__ethsltd_assets_reload");
+        const now = Date.now();
+        if (!lastReload || now - parseInt(lastReload, 10) > 10000) {
+          sessionStorage.setItem("__ethsltd_assets_reload", String(now));
+          window.location.reload();
+          return;
+        }
+      }
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);

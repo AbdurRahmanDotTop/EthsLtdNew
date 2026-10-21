@@ -34,12 +34,16 @@ export default function RmPrivateChatPage({ params }: { params: Promise<{ connec
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const pollIntervalRef = useRef<any>(null);
+  const inFlightRef = useRef(false);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
   const fetchChat = async (isBackground = false) => {
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
+
     try {
       const res = await getRmConversation(connectionId);
       if (res.success) {
@@ -49,13 +53,33 @@ export default function RmPrivateChatPage({ params }: { params: Promise<{ connec
       } else {
         if (res.requiresActiveContract) {
           setLockedReason(res.error || "Contract must be signed by both parties.");
+          // Stop polling when conversation is locked by missing contract
+          if (pollIntervalRef.current) {
+            clearInterval(pollIntervalRef.current);
+            pollIntervalRef.current = null;
+          }
         } else if (!isBackground) {
           toast.error(res.error || "Chat unavailable");
         }
       }
     } catch (e: any) {
-      if (!isBackground) toast.error(e.message);
+      const errMsg = String(e?.message || "");
+      if (
+        errMsg.includes("Failed to find Server Action") ||
+        errMsg.includes("older or newer deployment") ||
+        errMsg.includes("503")
+      ) {
+        const lastReload = sessionStorage.getItem("__ethsltd_rm_chat_reload");
+        const now = Date.now();
+        if (!lastReload || now - parseInt(lastReload, 10) > 10000) {
+          sessionStorage.setItem("__ethsltd_rm_chat_reload", String(now));
+          window.location.reload();
+          return;
+        }
+      }
+      if (!isBackground) toast.error(e.message || "Chat unavailable");
     } finally {
+      inFlightRef.current = false;
       if (!isBackground) setLoading(false);
     }
   };
@@ -63,15 +87,15 @@ export default function RmPrivateChatPage({ params }: { params: Promise<{ connec
   useEffect(() => {
     fetchChat();
 
-    // 4-second visibility-aware polling interval for real-time messages
+    // 6-second visibility-aware polling interval with in-flight guard
     pollIntervalRef.current = setInterval(() => {
-      if (!document.hidden) {
+      if (!document.hidden && !inFlightRef.current) {
         fetchChat(true);
       }
-    }, 4000);
+    }, 6000);
 
     const handleVisibility = () => {
-      if (!document.hidden) {
+      if (!document.hidden && !inFlightRef.current) {
         fetchChat(true);
       }
     };
@@ -109,7 +133,16 @@ export default function RmPrivateChatPage({ params }: { params: Promise<{ connec
         setInputText(text); // restore on failure
       }
     } catch (e: any) {
-      toast.error(e.message);
+      const errMsg = String(e?.message || "");
+      if (
+        errMsg.includes("Failed to find Server Action") ||
+        errMsg.includes("older or newer deployment") ||
+        errMsg.includes("503")
+      ) {
+        window.location.reload();
+        return;
+      }
+      toast.error(e.message || "Failed to send message.");
       setInputText(text);
     } finally {
       setIsSending(false);

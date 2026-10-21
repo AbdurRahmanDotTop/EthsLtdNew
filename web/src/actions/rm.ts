@@ -945,18 +945,29 @@ export async function getRmConversation(connectionId: string) {
       });
     }
 
-    // Mark unread messages sent by the other party as read
-    await prisma.rmMessage.updateMany({
-      where: {
-        conversationId: conversation.id,
-        senderId: { not: user.id },
-        isRead: false,
-      },
-      data: {
-        isRead: true,
-        readAt: new Date(),
-      },
-    });
+    // Mark unread messages sent by the other party as read ONLY if unread messages exist
+    const hasUnread = conversation.messages.some(
+      (m: any) => !m.isRead && m.senderId !== user.id
+    );
+    if (hasUnread) {
+      await prisma.rmMessage.updateMany({
+        where: {
+          conversationId: conversation.id,
+          senderId: { not: user.id },
+          isRead: false,
+        },
+        data: {
+          isRead: true,
+          readAt: new Date(),
+        },
+      });
+      conversation.messages.forEach((m: any) => {
+        if (!m.isRead && m.senderId !== user.id) {
+          m.isRead = true;
+          m.readAt = new Date();
+        }
+      });
+    }
 
     const otherParty = isUser
       ? {
