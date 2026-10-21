@@ -12,17 +12,26 @@ function getPrismaInstance(): PrismaClientNode {
     return (globalThis as any)[globalPrismaKey];
   }
 
+  let dbBinding: any = null;
+
   try {
     const cf = getCloudflareContext({ async: false });
-    const dbBinding = (cf as any)?.env?.DB;
-    if (dbBinding) {
-      const adapter = new PrismaD1(dbBinding);
-      const instance = new (PrismaClientWasm as any)({ adapter }) as PrismaClientNode;
-      (globalThis as any)[globalPrismaKey] = instance;
-      return instance;
-    }
+    dbBinding = (cf as any)?.env?.DB;
   } catch {
     // Non-Cloudflare context or local CLI scripts
+  }
+
+  // Fallback to OpenNext global context symbol or direct DB attachment
+  if (!dbBinding) {
+    const cfGlobal = (globalThis as any)[Symbol.for("__cloudflare-context__")];
+    dbBinding = cfGlobal?.env?.DB || (globalThis as any).DB || (process.env as any)?.DB;
+  }
+
+  if (dbBinding) {
+    const adapter = new PrismaD1(dbBinding);
+    const instance = new (PrismaClientWasm as any)({ adapter }) as PrismaClientNode;
+    (globalThis as any)[globalPrismaKey] = instance;
+    return instance;
   }
 
   // 2. Local Node.js / CLI testing fallback

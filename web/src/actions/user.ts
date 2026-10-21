@@ -246,7 +246,7 @@ export async function submitBankDeposit(data: {
   amount: number;
   bankName?: string;
   referenceNumber: string;
-  proofUrl?: string;
+  proofUrl: string;
 }) {
   try {
     const user = await resolveUser(data.userId);
@@ -256,8 +256,32 @@ export async function submitBankDeposit(data: {
       return { success: false, error: "Please enter a valid deposit amount." };
     }
 
-    if (!data.referenceNumber) {
+    if (!data.referenceNumber || !data.referenceNumber.trim()) {
       return { success: false, error: "Transaction / UTR Reference number is required." };
+    }
+
+    if (!data.proofUrl || !data.proofUrl.trim()) {
+      return {
+        success: false,
+        error: "Payment proof receipt or transfer screenshot is mandatory.",
+      };
+    }
+
+    const cleanRef = data.referenceNumber.trim();
+
+    // Prevent duplicate submission with same pending reference number
+    const existingPending = await prisma.depositRequest.findFirst({
+      where: {
+        referenceNumber: cleanRef,
+        status: "PENDING",
+      },
+    });
+
+    if (existingPending) {
+      return {
+        success: false,
+        error: "A deposit request with this reference number / UTR is already pending review.",
+      };
     }
 
     const deposit = await prisma.$transaction(async (tx: DBClient) => {
@@ -268,8 +292,8 @@ export async function submitBankDeposit(data: {
           asset: "USDT",
           method: "BANK",
           bankName: data.bankName || "Axis Bank",
-          referenceNumber: data.referenceNumber.trim(),
-          proofUrl: data.proofUrl,
+          referenceNumber: cleanRef,
+          proofUrl: data.proofUrl.trim(),
           status: "PENDING",
         },
       });
@@ -281,7 +305,7 @@ export async function submitBankDeposit(data: {
           asset: "USDT",
           amount: data.amount,
           status: "Processing",
-          description: `Bank Deposit Ref: ${data.referenceNumber}`,
+          description: `Bank Deposit Ref: ${cleanRef}`,
         },
       });
 
@@ -305,7 +329,7 @@ export async function submitDeposit(data: {
   method: "BANK" | "CRYPTO";
   networkOrBank?: string;
   referenceNumber: string;
-  proofUrl?: string;
+  proofUrl: string;
 }) {
   try {
     const user = await resolveUser(data.userId);
@@ -325,6 +349,30 @@ export async function submitDeposit(data: {
       };
     }
 
+    if (!data.proofUrl || !data.proofUrl.trim()) {
+      return {
+        success: false,
+        error: "Payment proof receipt or transfer screenshot is mandatory.",
+      };
+    }
+
+    const cleanRef = data.referenceNumber.trim();
+
+    // Prevent duplicate submission with same pending reference number
+    const existingPending = await prisma.depositRequest.findFirst({
+      where: {
+        referenceNumber: cleanRef,
+        status: "PENDING",
+      },
+    });
+
+    if (existingPending) {
+      return {
+        success: false,
+        error: "A deposit request with this transaction reference / TXID is already pending review.",
+      };
+    }
+
     const deposit = await prisma.$transaction(async (tx: DBClient) => {
       const dep = await tx.depositRequest.create({
         data: {
@@ -333,8 +381,8 @@ export async function submitDeposit(data: {
           asset: "USDT",
           method: data.method,
           bankName: data.networkOrBank || (data.method === "BANK" ? "Axis Bank" : "USDT"),
-          referenceNumber: data.referenceNumber.trim(),
-          proofUrl: data.proofUrl,
+          referenceNumber: cleanRef,
+          proofUrl: data.proofUrl.trim(),
           status: "PENDING",
         },
       });
@@ -346,7 +394,7 @@ export async function submitDeposit(data: {
           asset: "USDT",
           amount: data.amount,
           status: "Processing",
-          description: `${data.method === "BANK" ? "Bank Deposit" : "Crypto Deposit"} (${data.networkOrBank || "USDT"}) Ref: ${data.referenceNumber.trim()}`,
+          description: `${data.method === "BANK" ? "Bank Deposit" : "Crypto Deposit"} (${data.networkOrBank || "USDT"}) Ref: ${cleanRef}`,
         },
       });
 

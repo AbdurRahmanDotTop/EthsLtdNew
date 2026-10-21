@@ -1,5 +1,7 @@
 "use client";
 
+export const dynamic = "force-dynamic";
+
 import { useEffect, useState } from "react";
 import {
   getAllPaymentMethods,
@@ -117,9 +119,9 @@ export default function AdminPaymentMethodsPage() {
     setModalMode("create");
     setEditingId(null);
     setType(defaultType);
-    setName(defaultType === "BANK" ? "Axis Bank (Direct Transfer)" : "USDT (TRC-20 Network)");
-    setBankName(defaultType === "BANK" ? "Axis Bank Ltd" : "");
-    setAccountHolder(defaultType === "BANK" ? "ETHSLTD TRADING CORP" : "");
+    setName(defaultType === "BANK" ? "" : "");
+    setBankName("");
+    setAccountHolder("");
     setAccountNumber("");
     setIfscOrSwift("");
     setNetwork(defaultType === "CRYPTO" ? "TRC-20" : "");

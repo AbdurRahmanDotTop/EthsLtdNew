@@ -355,12 +355,13 @@ export async function reviewKyc(
 }
 
 // 5. Deposit Management
-export async function getAllDeposits() {
+export async function getAllDeposits(limit: number = 100) {
   await verifyAdmin();
 
   return prisma.depositRequest.findMany({
     include: { user: { select: { email: true, uid: true } } },
     orderBy: { createdAt: "desc" },
+    take: limit,
   });
 }
 
@@ -404,18 +405,37 @@ export async function reviewDeposit(
       });
     }
 
-    // Update Transaction record status
-    await tx.transaction.updateMany({
-      where: {
-        userId: deposit.userId,
-        type: "Deposit",
-        amount: deposit.amount,
-        status: "Processing",
-      },
-      data: {
-        status: decision === "APPROVED" ? "Passed" : "Failed",
-      },
-    });
+    // Safely update corresponding Transaction record matching this deposit's reference
+    const cleanRef = deposit.referenceNumber ? deposit.referenceNumber.trim() : "";
+    let updatedTx = { count: 0 };
+    if (cleanRef) {
+      updatedTx = await tx.transaction.updateMany({
+        where: {
+          userId: deposit.userId,
+          type: "Deposit",
+          status: "Processing",
+          description: { contains: cleanRef },
+        },
+        data: {
+          status: decision === "APPROVED" ? "Passed" : "Failed",
+        },
+      });
+    }
+
+    // Fallback if transaction record description lacked the reference string
+    if (updatedTx.count === 0) {
+      await tx.transaction.updateMany({
+        where: {
+          userId: deposit.userId,
+          type: "Deposit",
+          amount: deposit.amount,
+          status: "Processing",
+        },
+        data: {
+          status: decision === "APPROVED" ? "Passed" : "Failed",
+        },
+      });
+    }
 
     await tx.auditLog.create({
       data: {
@@ -424,7 +444,7 @@ export async function reviewDeposit(
         action: decision === "APPROVED" ? "DEPOSIT_APPROVAL" : "DEPOSIT_REJECTION",
         targetType: "DEPOSIT",
         targetId: depositId,
-        details: `${decision} deposit of ${deposit.amount} USDT for ${deposit.user.email}`,
+        details: `${decision} deposit of ${deposit.amount} USDT for ${deposit.user.email} (Ref: ${deposit.referenceNumber})`,
       },
     });
   });
