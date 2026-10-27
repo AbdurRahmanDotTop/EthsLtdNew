@@ -268,15 +268,10 @@ const DEFAULT_MARKETS = [
   },
 ];
 
-const DEFAULT_HOMEPAGE_MARKETS = {
-  topTickers: DEFAULT_MARKETS.filter((m) => m.isTopTicker),
-  homeListings: DEFAULT_MARKETS.filter((m) => m.isListedOnHome),
-};
-
-// Edge in-memory cache pre-warmed to guarantee zero cold-start overhead
-let cachedHomepageMarkets: { topTickers: any[]; homeListings: any[] } = DEFAULT_HOMEPAGE_MARKETS;
-let lastHomepageFetch = Date.now();
-const MARKETS_CACHE_TTL = 120000; // 2 minutes
+// Edge in-memory cache strictly populated from database records
+let cachedHomepageMarkets: { topTickers: any[]; homeListings: any[] } | null = null;
+let lastHomepageFetch = 0;
+const MARKETS_CACHE_TTL = 30000; // 30 seconds
 let isFetchingHomepageMarkets = false;
 
 const cachedActiveMarkets: Record<string, any[] | undefined> = {};
@@ -285,7 +280,7 @@ const lastActiveMarketsFetch: Record<string, number | undefined> = {};
 let marketsSeededChecked = true;
 
 export async function invalidateMarketsCache() {
-  cachedHomepageMarkets = DEFAULT_HOMEPAGE_MARKETS;
+  cachedHomepageMarkets = null;
   lastHomepageFetch = 0;
   for (const k of Object.keys(cachedActiveMarkets)) {
     delete cachedActiveMarkets[k];
@@ -362,7 +357,7 @@ export async function getActiveMarkets(tradingMode: string = "ALL") {
  */
 export async function getHomepageMarkets() {
   const now = Date.now();
-  if (cachedHomepageMarkets && (now - lastHomepageFetch < MARKETS_CACHE_TTL || isFetchingHomepageMarkets)) {
+  if (cachedHomepageMarkets !== null && (now - lastHomepageFetch < MARKETS_CACHE_TTL || isFetchingHomepageMarkets)) {
     return cachedHomepageMarkets;
   }
 
@@ -411,20 +406,27 @@ export async function getHomepageMarkets() {
       return cachedHomepageMarkets;
     }
 
-    // Fallback in-memory defaults
-    const fallback = {
-      topTickers: DEFAULT_MARKETS.filter((m) => m.isTopTicker),
-      homeListings: DEFAULT_MARKETS.filter((m) => m.isListedOnHome),
-    };
-    cachedHomepageMarkets = fallback;
+    // Auto-seed initial markets if table is completely empty
+    await seedDefaultMarketsIfEmpty();
+    const [seededTop, seededHome] = await Promise.all([
+      prisma.market.findMany({
+        where: { isTopTicker: true, status: "ACTIVE" },
+        orderBy: { displayOrder: "asc" },
+        take: 3,
+      }),
+      prisma.market.findMany({
+        where: { isListedOnHome: true, status: "ACTIVE" },
+        orderBy: { displayOrder: "asc" },
+      }),
+    ]);
+
+    const result = { topTickers: seededTop, homeListings: seededHome };
+    cachedHomepageMarkets = result;
     lastHomepageFetch = now;
-    return fallback;
+    return result;
   } catch (err: unknown) {
     console.error("getHomepageMarkets Error:", err);
-    return {
-      topTickers: DEFAULT_MARKETS.filter((m) => m.isTopTicker),
-      homeListings: DEFAULT_MARKETS.filter((m) => m.isListedOnHome),
-    };
+    return cachedHomepageMarkets || { topTickers: [], homeListings: [] };
   } finally {
     isFetchingHomepageMarkets = false;
   }

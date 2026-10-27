@@ -83,21 +83,21 @@ const DEFAULT_SLIDES = [
   },
 ];
 
-// High-performance edge in-memory cache pre-warmed to guarantee zero cold-start overhead
-let cachedHeroSlides: any[] = [...DEFAULT_SLIDES];
-let lastHeroSlidesFetch = Date.now();
-const HERO_SLIDES_CACHE_TTL = 120000; // 2 minutes
+// Edge in-memory cache strictly populated from database records
+let cachedHeroSlides: any[] | null = null;
+let lastHeroSlidesFetch = 0;
+const HERO_SLIDES_CACHE_TTL = 30000; // 30 seconds
 let isFetchingSlides = false;
 
 export async function invalidateHeroSlidesCache() {
-  cachedHeroSlides = [...DEFAULT_SLIDES];
+  cachedHeroSlides = null;
   lastHeroSlidesFetch = 0;
 }
 
 // 1. Public query for Home Page Hero Slider
 export async function getHeroSlides() {
   const now = Date.now();
-  if (cachedHeroSlides && (now - lastHeroSlidesFetch < HERO_SLIDES_CACHE_TTL || isFetchingSlides)) {
+  if (cachedHeroSlides !== null && (now - lastHeroSlidesFetch < HERO_SLIDES_CACHE_TTL || isFetchingSlides)) {
     return cachedHeroSlides;
   }
 
@@ -159,8 +159,7 @@ export async function getHeroSlides() {
     return [];
   } catch (err) {
     console.error("getHeroSlides error:", err);
-    // Fallback in-memory slides if DB error occurs
-    return DEFAULT_SLIDES.map((s, idx) => ({ ...s, id: `fallback-${idx}`, createdAt: new Date(), updatedAt: new Date() }));
+    return cachedHeroSlides || [];
   } finally {
     isFetchingSlides = false;
   }

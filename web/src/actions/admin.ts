@@ -21,6 +21,9 @@ import {
   EmailSendResult,
   SendEmailOptions,
 } from "@/lib/email";
+import { invalidatePublicRmsCache } from "@/actions/rm";
+import { invalidateHeroSlidesCache } from "@/actions/slider";
+import { invalidateMarketsCache } from "@/actions/markets";
 
 function sanitizeRmCode(code: string | null | undefined, fallbackUid?: number | string): string {
   if (!code) return fallbackUid ? `RM-${fallbackUid}` : "RM";
@@ -36,6 +39,15 @@ function safeRevalidate(path: string) {
     revalidatePath(path);
   } catch {
     // Outside Next.js context
+  }
+  if (path.includes("relationship-managers") || path.includes("rm")) {
+    invalidatePublicRmsCache();
+  }
+  if (path === "/" || path.includes("slider") || path.includes("hero")) {
+    invalidateHeroSlidesCache();
+  }
+  if (path === "/" || path.includes("markets") || path.includes("trade") || path.includes("option")) {
+    invalidateMarketsCache();
   }
 }
 

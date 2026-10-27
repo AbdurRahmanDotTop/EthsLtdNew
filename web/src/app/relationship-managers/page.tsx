@@ -432,14 +432,19 @@ export default function RelationshipManagersPage() {
                       Advisory Expertise
                     </span>
                     <div className="flex flex-wrap gap-1.5">
-                      {rm.specialties.split(",").slice(0, 3).map((spec: string, i: number) => (
-                        <span
-                          key={i}
-                          className="px-2 py-0.5 rounded-md bg-[#1E202B] border border-white/5 text-[11px] text-gray-300"
-                        >
-                          {spec.trim()}
-                        </span>
-                      ))}
+                      {(rm.specialties || "")
+                        .split(",")
+                        .map((s: string) => s.trim())
+                        .filter(Boolean)
+                        .slice(0, 3)
+                        .map((spec: string, i: number) => (
+                          <span
+                            key={i}
+                            className="px-2 py-0.5 rounded-md bg-[#1E202B] border border-white/5 text-[11px] text-gray-300"
+                          >
+                            {spec}
+                          </span>
+                        ))}
                     </div>
                   </div>
                 </div>

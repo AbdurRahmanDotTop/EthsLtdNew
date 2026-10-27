@@ -41,9 +41,9 @@ const DEFAULT_TICKERS: Record<string, { price: string; changePercent: string; hi
   SUIUSDT: { price: "2.15", changePercent: "+5.40%", high: "2.25", low: "2.02" },
 };
 
-// Resilient edge memory cache pre-warmed to guarantee zero cold-start delay
-let cachedTickers: Record<string, { price: string; changePercent: string; high: string; low: string }> = { ...DEFAULT_TICKERS };
-let lastFetchTime = Date.now();
+// Resilient edge memory cache strictly populated dynamically
+let cachedTickers: Record<string, { price: string; changePercent: string; high: string; low: string }> = {};
+let lastFetchTime = 0;
 const CACHE_TTL_MS = 15000; // 15 seconds edge memory cache
 let isFetching = false;
 
@@ -123,9 +123,13 @@ async function refreshTickersInBackground() {
 export async function GET() {
   const now = Date.now();
 
-  // If cache is expired, trigger background refresh without blocking current request
+  // If cache is expired or empty, trigger refresh (await if cache is cold)
   if (now - lastFetchTime >= CACHE_TTL_MS) {
-    refreshTickersInBackground().catch(() => {});
+    if (lastFetchTime === 0 || Object.keys(cachedTickers).length === 0) {
+      await refreshTickersInBackground();
+    } else {
+      refreshTickersInBackground().catch(() => {});
+    }
   }
 
   // Always return from edge memory cache (< 1ms CPU time, 0ms I/O wait)

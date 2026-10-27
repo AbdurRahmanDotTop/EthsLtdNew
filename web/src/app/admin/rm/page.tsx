@@ -177,8 +177,8 @@ export default function AdminRelationshipManagementPage() {
       specialties: rm.specialties || "",
       phone: rm.phone || "",
       maxClients: rm.maxClients || 50,
-      rating: rm.rating || 4.9,
-      experienceYears: rm.experienceYears || 5,
+      rating: rm.rating !== undefined && rm.rating !== null ? Number(rm.rating) : 0,
+      experienceYears: rm.experienceYears !== undefined && rm.experienceYears !== null ? Number(rm.experienceYears) : 0,
     });
     setIsEditModalOpen(true);
   };

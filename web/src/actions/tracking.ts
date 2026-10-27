@@ -35,14 +35,14 @@ function safeRevalidate(path: string) {
   }
 }
 
-// High-performance edge in-memory cache pre-warmed to guarantee zero cold-start delay
-let cachedTrackingConfig: TrackingConfigData = { ...DEFAULT_TRACKING_CONFIG };
-let lastTrackingFetch = Date.now();
-const TRACKING_CACHE_TTL = 300000; // 5 minutes
+// Edge in-memory cache strictly populated from database
+let cachedTrackingConfig: TrackingConfigData | null = null;
+let lastTrackingFetch = 0;
+const TRACKING_CACHE_TTL = 30000; // 30 seconds
 let isFetchingTracking = false;
 
 export async function invalidateTrackingCache() {
-  cachedTrackingConfig = { ...DEFAULT_TRACKING_CONFIG };
+  cachedTrackingConfig = null;
   lastTrackingFetch = 0;
 }
 
@@ -52,7 +52,7 @@ export async function invalidateTrackingCache() {
  */
 export async function getTrackingConfig(): Promise<TrackingConfigData> {
   const now = Date.now();
-  if (now - lastTrackingFetch < TRACKING_CACHE_TTL || isFetchingTracking) {
+  if (cachedTrackingConfig !== null && (now - lastTrackingFetch < TRACKING_CACHE_TTL || isFetchingTracking)) {
     return cachedTrackingConfig;
   }
 
@@ -88,10 +88,11 @@ export async function getTrackingConfig(): Promise<TrackingConfigData> {
       return cachedTrackingConfig;
     }
 
+    cachedTrackingConfig = { ...DEFAULT_TRACKING_CONFIG };
     lastTrackingFetch = now;
     return cachedTrackingConfig;
   } catch {
-    return cachedTrackingConfig;
+    return cachedTrackingConfig || { ...DEFAULT_TRACKING_CONFIG };
   } finally {
     isFetchingTracking = false;
   }
