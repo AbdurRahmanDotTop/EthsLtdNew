@@ -45,17 +45,27 @@ export default function AdminAuditLogsPage() {
       log.targetId?.toLowerCase().includes(searchTerm.toLowerCase());
 
     const matchesAction =
-      actionFilter === "ALL" || log.action?.includes(actionFilter);
+      actionFilter === "ALL" ||
+      (actionFilter === "SECURITY"
+        ? log.action?.includes("REGISTRATION") ||
+          log.action?.includes("FLAGGED") ||
+          log.action?.includes("BLOCKED") ||
+          log.action?.includes("SECURITY") ||
+          log.action?.includes("EMAIL_VERIFICATION")
+        : log.action?.includes(actionFilter));
 
     return matchesSearch && matchesAction;
   });
 
   const getActionBadge = (action: string) => {
-    if (action.includes("APPROVAL")) {
+    if (action.includes("APPROVAL") || action.includes("SUCCESS")) {
       return "bg-[#00A070]/15 text-[#00A070] border-[#00A070]/30";
     }
-    if (action.includes("REJECTION") || action.includes("BANNED")) {
-      return "bg-rose-500/15 text-rose-400 border-rose-500/30";
+    if (action.includes("REJECTION") || action.includes("BANNED") || action.includes("BLOCKED")) {
+      return "bg-rose-500/15 text-rose-400 border-rose-500/30 font-semibold";
+    }
+    if (action.includes("FLAGGED") || action.includes("SPAM")) {
+      return "bg-purple-500/15 text-purple-400 border-purple-500/30 font-bold";
     }
     if (action.includes("ADJUSTMENT")) {
       return "bg-amber-500/15 text-amber-400 border-amber-500/30";
@@ -63,7 +73,7 @@ export default function AdminAuditLogsPage() {
     if (action.includes("ROLE") || action.includes("STATUS")) {
       return "bg-blue-500/15 text-blue-400 border-blue-500/30";
     }
-    return "bg-purple-500/15 text-purple-400 border-purple-500/30";
+    return "bg-gray-500/15 text-gray-400 border-gray-500/30";
   };
 
   return (
@@ -105,6 +115,7 @@ export default function AdminAuditLogsPage() {
         <div className="flex bg-[#10121A] p-1 rounded-xl border border-white/5 text-xs overflow-x-auto">
           {[
             { label: "All Logs", value: "ALL" },
+            { label: "Security & Anti-Spam", value: "SECURITY" },
             { label: "Adjustments", value: "ADJUSTMENT" },
             { label: "Deposits", value: "DEPOSIT" },
             { label: "Withdrawals", value: "WITHDRAWAL" },

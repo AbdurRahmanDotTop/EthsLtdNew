@@ -110,7 +110,7 @@ export async function reconcileExpiredOptions(userId?: string) {
             });
             clearTimeout(timeoutId);
             if (binanceRes.ok) {
-              const data = await binanceRes.json();
+              const data = (await binanceRes.json()) as any;
               if (data && data.price) {
                 currentPrice = parseFloat(data.price);
               }

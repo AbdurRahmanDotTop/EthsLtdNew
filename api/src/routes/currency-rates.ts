@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
 import { Bindings, Variables } from '../db';
-import { currencyRates } from 'database';
+import { currencyRates, platformSettings } from 'database';
 
 export const publicCurrencyRateRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -10,7 +10,6 @@ publicCurrencyRateRoutes.get('/', async (c) => {
   const db = c.get('db');
   
   try {
-    const { platformSettings } = require('database');
     const baseSetting = await db.select().from(platformSettings).where(eq(platformSettings.key, 'BASE_CURRENCY')).get();
     const baseCurrency = baseSetting?.value || 'USDT';
 
@@ -33,6 +32,7 @@ publicCurrencyRateRoutes.get('/', async (c) => {
 
     return c.json({ success: true, data: ratesDict, list: rates, baseCurrency });
   } catch (error) {
+    console.error("Currency rates error:", error);
     return c.json({ success: false, error: 'Failed to fetch currency rates' }, 500);
   }
 });

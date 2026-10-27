@@ -98,7 +98,13 @@ export async function getAllUsers() {
   });
 }
 
-export async function updateUserStatus(userId: string, status: "ACTIVE" | "FROZEN" | "BANNED") {
+export type UserStatus = "ACTIVE" | "FROZEN" | "BANNED" | "FLAGGED_SPAM" | "PENDING_VERIFICATION";
+export type UserRole = "USER" | "ADMIN" | "SUPER_ADMIN" | "RM";
+
+export async function updateUserStatus(
+  userId: string,
+  status: UserStatus
+) {
   const admin = await verifyAdmin();
 
   const user = await prisma.user.update({
@@ -121,7 +127,7 @@ export async function updateUserStatus(userId: string, status: "ACTIVE" | "FROZE
   return { success: true };
 }
 
-export async function updateUserRole(userId: string, role: "USER" | "ADMIN" | "SUPER_ADMIN" | "RM") {
+export async function updateUserRole(userId: string, role: UserRole) {
   const admin = await verifyAdmin();
 
   if (admin.role !== "SUPER_ADMIN") {
@@ -3137,15 +3143,17 @@ export async function getUserDetailsAdmin(userId: string): Promise<{ success: bo
   }
 }
 
+export interface UpdateUserProfileAdminInput {
+  name?: string;
+  phone?: string;
+  status?: UserStatus;
+  role?: UserRole;
+  isKycVerified?: boolean;
+}
+
 export async function updateUserProfileAdmin(
   userId: string,
-  data: {
-    name?: string;
-    phone?: string;
-    status?: "ACTIVE" | "FROZEN" | "BANNED";
-    role?: "USER" | "ADMIN" | "SUPER_ADMIN" | "RM";
-    isKycVerified?: boolean;
-  }
+  data: UpdateUserProfileAdminInput
 ) {
   try {
     const admin = await verifyAdmin();

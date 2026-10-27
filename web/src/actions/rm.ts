@@ -10,6 +10,9 @@ function safeRevalidate(path: string) {
   } catch {
     // Outside Next.js context
   }
+  if (path.includes("relationship-managers") || path.includes("rm")) {
+    invalidatePublicRmsCache();
+  }
 }
 
 async function verifyAuthUser(): Promise<any> {
@@ -44,10 +47,25 @@ function sanitizeRmCode(code: string | null | undefined, fallbackUid?: number | 
   return trimmed;
 }
 
+// High-performance edge cache for public RM discovery
+let cachedPublicRms: any[] | null = null;
+let lastPublicRmsFetch = 0;
+const PUBLIC_RMS_CACHE_TTL = 30000; // 30 seconds
+
+export async function invalidatePublicRmsCache() {
+  cachedPublicRms = null;
+  lastPublicRmsFetch = 0;
+}
+
 export async function getAvailableRms(params?: { search?: string; service?: string }) {
   try {
     const session = await getSession();
     const currentUserId = session?.userId;
+    const isPublicDefaultQuery = !currentUserId && !params?.search;
+
+    if (isPublicDefaultQuery && cachedPublicRms && Date.now() - lastPublicRmsFetch < PUBLIC_RMS_CACHE_TTL) {
+      return { success: true, rms: cachedPublicRms, cached: true };
+    }
 
     const where: any = {
       role: "RM",
@@ -158,6 +176,11 @@ export async function getAvailableRms(params?: { search?: string; service?: stri
         userReview: userRev,
       };
     });
+
+    if (isPublicDefaultQuery) {
+      cachedPublicRms = mapped;
+      lastPublicRmsFetch = Date.now();
+    }
 
     return { success: true, rms: mapped };
   } catch (error: any) {

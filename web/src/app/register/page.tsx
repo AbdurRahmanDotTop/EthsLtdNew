@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, Suspense } from "react";
-import { Eye, EyeOff, Lock, Mail, User, KeyRound, Loader2, ArrowRight } from "lucide-react";
+import { Eye, EyeOff, Lock, Mail, User, KeyRound, Loader2, ArrowRight, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { registerUser } from "@/actions/auth";
 import { toast } from "sonner";
 import { Logo } from "@/components/ui/logo";
+import { TurnstileWidget } from "@/components/ui/turnstile-widget";
 
 export default function RegisterPage() {
   return (
@@ -32,6 +33,9 @@ function RegisterForm() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [transactionPin, setTransactionPin] = useState("123456");
+  const [turnstileToken, setTurnstileToken] = useState("");
+  const [honeypot, setHoneypot] = useState("");
+  const [mountTime] = useState(() => Date.now());
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [showPin, setShowPin] = useState(false);
@@ -54,6 +58,11 @@ function RegisterForm() {
       return;
     }
 
+    if (!turnstileToken) {
+      toast.error("Please wait a moment for the security verification check.");
+      return;
+    }
+
     setIsLoading(true);
     try {
       const res = await registerUser({
@@ -61,13 +70,21 @@ function RegisterForm() {
         email,
         password,
         transactionPin,
+        turnstileToken,
+        honeypot,
+        submissionTiming: mountTime,
       });
 
       if (res.success) {
-        toast.success("Account registered successfully! Welcome to ETHSLTD.");
-        const destination = redirectTarget || res.redirectUrl || "/assets";
-        router.push(destination);
-        router.refresh();
+        if (res.requiresVerification) {
+          toast.success("Account created! Verification code sent to your email.");
+          router.push(res.redirectUrl || `/verify-email?email=${encodeURIComponent(email.trim().toLowerCase())}`);
+        } else {
+          toast.success("Account registered successfully! Welcome to ETHSLTD.");
+          const destination = redirectTarget || res.redirectUrl || "/assets";
+          router.push(destination);
+          router.refresh();
+        }
       } else {
         toast.error(res.error || "Registration failed.");
       }
@@ -193,6 +210,28 @@ function RegisterForm() {
                 {showPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
+          </div>
+
+          {/* Anti-Bot Honeypot Field (Invisible to human users) */}
+          <div className="hidden" aria-hidden="true" style={{ display: "none" }}>
+            <label htmlFor="company_website_url">Company Website</label>
+            <input
+              type="text"
+              id="company_website_url"
+              name="company_website_url"
+              value={honeypot}
+              onChange={(e) => setHoneypot(e.target.value)}
+              tabIndex={-1}
+              autoComplete="off"
+            />
+          </div>
+
+          {/* Cloudflare Turnstile Verification Widget */}
+          <div className="pt-1">
+            <TurnstileWidget
+              onVerify={(token) => setTurnstileToken(token)}
+              onExpire={() => setTurnstileToken("")}
+            />
           </div>
 
           <button

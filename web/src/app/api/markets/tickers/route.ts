@@ -26,7 +26,7 @@ const TARGET_SYMBOLS_ARRAY = Array.from(TARGET_SYMBOLS);
 // Resilient edge memory cache
 let cachedTickers: Record<string, { price: string; changePercent: string; high: string; low: string }> = {};
 let lastFetchTime = 0;
-const CACHE_TTL_MS = 4000; // 4 seconds memory cache
+const CACHE_TTL_MS = 10000; // 10 seconds edge memory cache
 
 export async function GET() {
   try {
@@ -77,30 +77,31 @@ export async function GET() {
       // Fallback below
     }
 
-    // 2. Fallback to MEXC if Binance failed (filter strictly during loop to avoid CPU & memory bloat)
+    // 2. Targeted Fallback to MEXC if Binance failed (fetch only targeted symbols, avoiding 4MB payload)
     if (Object.keys(fetchedMap).length === 0) {
       try {
-        const res = await fetch("https://api.mexc.com/api/v3/ticker/24hr", {
-          signal: controller.signal,
-          cache: "no-store",
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          if (Array.isArray(data)) {
-            for (const item of data) {
-              if (!item || !item.symbol || !TARGET_SYMBOLS.has(item.symbol)) continue;
-              const pctVal = parseFloat(item.priceChangePercent || "0") * 100;
-              const formattedPct = (pctVal >= 0 ? "+" : "") + pctVal.toFixed(2) + "%";
-              fetchedMap[item.symbol] = {
-                price: item.lastPrice || "0",
-                changePercent: formattedPct,
-                high: item.highPrice || item.lastPrice || "0",
-                low: item.lowPrice || item.lastPrice || "0",
-              };
+        const mexcPromises = TARGET_SYMBOLS_ARRAY.map(async (sym) => {
+          try {
+            const res = await fetch(`https://api.mexc.com/api/v3/ticker/24hr?symbol=${sym}`, {
+              signal: controller.signal,
+              cache: "no-store",
+            });
+            if (res.ok) {
+              const item = (await res.json()) as any;
+              if (item && item.symbol) {
+                const pctVal = parseFloat(item.priceChangePercent || "0") * 100;
+                const formattedPct = (pctVal >= 0 ? "+" : "") + pctVal.toFixed(2) + "%";
+                fetchedMap[item.symbol] = {
+                  price: item.lastPrice || "0",
+                  changePercent: formattedPct,
+                  high: item.highPrice || item.lastPrice || "0",
+                  low: item.lowPrice || item.lastPrice || "0",
+                };
+              }
             }
-          }
-        }
+          } catch {}
+        });
+        await Promise.all(mexcPromises);
       } catch {
         // Suppress error and use cached fallback
       }

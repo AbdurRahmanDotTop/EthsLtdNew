@@ -39,7 +39,7 @@ export default function HomeMarketList({
       try {
         const res = await fetch("/api/markets/tickers");
         if (!res.ok) return;
-        const data = await res.json();
+        const data = (await res.json()) as any;
         if (data.success && data.tickers && !isDisposed) {
           setTickers(data.tickers);
         }

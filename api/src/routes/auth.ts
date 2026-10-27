@@ -8,12 +8,12 @@ import { jwtMiddleware } from '../middleware/jwt';
 import { generateBusinessId } from '../services/id-generator';
 import { EmailService } from '../services/email';
 import { getCookieDomain, getAuthCookieOptions } from '../utils/cookie';
-// @ts-ignore
-import * as otplibPkg from 'otplib';
-const authenticator = (otplibPkg as any).authenticator || (otplibPkg as any).default?.authenticator;
+import { authenticator } from '../utils/authenticator';
+import { validateEmail } from '../utils/email-validator';
+import { verifyTurnstileToken } from '../utils/turnstile';
+import { checkRateLimit, resetRateLimit, getClientIp } from '../utils/rate-limiter';
 
 export const authRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
-
 
 async function hashPassword(password: string) {
   const encoder = new TextEncoder();
@@ -26,84 +26,124 @@ authRoutes.post('/register', async (c) => {
   try {
     const body = await c.req.json();
     const db = c.get('db');
-    
-    if (!body.email || !body.password) {
-    return c.json({ success: false, error: 'Email and password are required' }, 400);
-  }
-  
-  const existingUser = await db.select().from(users).where(eq(users.email, body.email)).get();
-  if (existingUser) {
-    return c.json({ success: false, error: 'Email already in use' }, 400);
-  }
+    const clientIp = getClientIp(c.req);
 
-  const hashedPassword = await hashPassword(body.password);
-  const userId = crypto.randomUUID();
-  const sessionId = crypto.randomUUID();
-  const now = new Date();
-
-  // Check if this is the first user without loading all users into memory
-  const result = await db.select({ count: sql<number>`count(*)` }).from(users).get();
-  const isFirstUser = result?.count === 0;
-
-  const displayId = await generateBusinessId(db, body.email, 'USER');
-
-  await db.insert(users).values({
-    id: userId,
-    displayId,
-    email: body.email,
-    passwordHash: hashedPassword,
-    createdAt: now,
-    updatedAt: now,
-    role: isFirstUser ? 'SUPER_ADMIN' : 'USER',
-    status: 'ACTIVE'
-  });
-
-  const sessionDuration = 7 * 24 * 60 * 60 * 1000; // 7 days
-
-  await db.insert(sessions).values({
-    id: sessionId,
-    userId: userId,
-    expiresAt: new Date(now.getTime() + sessionDuration),
-    userAgent: c.req.header('user-agent') || 'Unknown',
-    ipAddress: c.req.header('x-real-ip') || c.req.header('x-forwarded-for') || 'Unknown',
-    createdAt: now,
-  });
-
-
-  const token = await sign({ id: userId, email: body.email, sessionId, exp: Math.floor(Date.now() / 1000) + (7 * 24 * 60 * 60) }, c.env.JWT_SECRET || 'super_secret_jwt_key_replace_me_in_prod');
-
-  const cookieOpts = getAuthCookieOptions(c);
-  setCookie(c, 'ethsltd_session', token, {
-    ...cookieOpts,
-    httpOnly: true,
-    maxAge: 7 * 24 * 60 * 60,
-  });
-
-  // Avoid re-fetching to prevent D1 replication lag issues
-  const userObj = {
-    id: userId,
-    displayId,
-    email: body.email,
-    role: isFirstUser ? 'SUPER_ADMIN' : 'USER',
-    status: 'ACTIVE'
-  } as any;
-
-  // Async Email Dispatch
-  const emailService = new EmailService(c.env, db);
-  const verifyToken = await sign({ purpose: 'email_verify', userId: userId, exp: Math.floor(Date.now() / 1000) + (24 * 60 * 60) }, c.env.JWT_SECRET || 'super_secret_jwt_key_replace_me_in_prod');
-  // We determine the origin based on request headers (or a configured APP_URL)
-  const appUrl = c.req.header('origin') || `https://${c.req.header('host')}`;
-  
-  c.executionCtx.waitUntil((async () => {
-    try {
-      await emailService.sendAdminNewUserAlert(userObj, appUrl);
-      await emailService.sendVerificationEmail(body.email, verifyToken, appUrl);
-    } catch (e) {
-      console.error("Background email failed", e);
+    // 1. IP Rate Limiting: Max 5 registration attempts per 15 minutes
+    const rateCheck = checkRateLimit(`api_reg_ip:${clientIp}`, {
+      windowSeconds: 900,
+      maxRequests: 5,
+    });
+    if (!rateCheck.allowed) {
+      return c.json({ success: false, error: rateCheck.error || 'Too many registration requests. Please wait.' }, 429);
     }
-  })());
 
-  return c.json({ success: true, token, data: { user: userObj } });
+    // 2. Cloudflare Turnstile Verification
+    const turnstileToken = body.turnstileToken || c.req.header('cf-turnstile-response') || c.req.header('x-turnstile-token');
+    const turnstileResult = await verifyTurnstileToken(turnstileToken, clientIp, (c.env as any).TURNSTILE_SECRET_KEY);
+    if (!turnstileResult.success) {
+      return c.json({ success: false, error: turnstileResult.error || 'Bot verification required.' }, 403);
+    }
+
+    // 3. Basic Input Validation
+    if (!body.email || !body.password) {
+      return c.json({ success: false, error: 'Email and password are required' }, 400);
+    }
+
+    if (body.password.length < 6) {
+      return c.json({ success: false, error: 'Password must be at least 6 characters' }, 400);
+    }
+
+    // 4. Disposable and Temporary Email Domain Validation
+    const emailValidation = await validateEmail(body.email);
+    if (!emailValidation.isValid) {
+      return c.json({ success: false, error: emailValidation.error || 'Invalid or disposable email provider.' }, 400);
+    }
+    const normalizedEmail = emailValidation.normalizedEmail;
+
+    // 5. Unique Email Check
+    const existingUser = await db.select().from(users).where(eq(users.email, normalizedEmail)).get();
+    if (existingUser) {
+      return c.json({ success: false, error: 'Email already in use' }, 400);
+    }
+
+    const hashedPassword = await hashPassword(body.password);
+    const userId = crypto.randomUUID();
+    const sessionId = crypto.randomUUID();
+    const now = new Date();
+
+    const displayId = await generateBusinessId(db, normalizedEmail, 'USER');
+
+    // 6. Generate 6-Digit Verification OTP Code
+    const randomValue = crypto.getRandomValues(new Uint32Array(1))[0];
+    const otp = (100000 + (randomValue % 900000)).toString();
+    const verificationExpiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 mins
+
+    // Insert user with status PENDING_VERIFICATION and emailVerified false
+    await db.insert(users).values({
+      id: userId,
+      displayId,
+      email: normalizedEmail,
+      passwordHash: hashedPassword,
+      createdAt: now,
+      updatedAt: now,
+      role: 'USER',
+      status: 'PENDING_VERIFICATION',
+      emailVerified: false,
+      verificationToken: otp,
+      verificationExpiresAt: verificationExpiresAt,
+    });
+
+    const sessionDuration = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+    await db.insert(sessions).values({
+      id: sessionId,
+      userId: userId,
+      expiresAt: new Date(now.getTime() + sessionDuration),
+      userAgent: c.req.header('user-agent') || 'Unknown',
+      ipAddress: clientIp,
+      createdAt: now,
+    });
+
+    const token = await sign(
+      { id: userId, email: normalizedEmail, sessionId, exp: Math.floor(Date.now() / 1000) + (7 * 24 * 60 * 60) },
+      c.env.JWT_SECRET || 'super_secret_jwt_key_replace_me_in_prod'
+    );
+
+    const cookieOpts = getAuthCookieOptions(c);
+    setCookie(c, 'ethsltd_session', token, {
+      ...cookieOpts,
+      httpOnly: true,
+      maxAge: 7 * 24 * 60 * 60,
+    });
+
+    const userObj = {
+      id: userId,
+      displayId,
+      email: normalizedEmail,
+      role: 'USER',
+      status: 'PENDING_VERIFICATION',
+      emailVerified: false,
+    } as any;
+
+    // Send Single Verification OTP Email (No marketing spam or welcome blast until verified)
+    const emailService = new EmailService(c.env, db);
+    const appUrl = c.req.header('origin') || `https://${c.req.header('host')}`;
+
+    c.executionCtx.waitUntil((async () => {
+      try {
+        await emailService.sendVerificationOTP(normalizedEmail, otp, appUrl);
+      } catch (e) {
+        console.error("Background OTP dispatch failed", e);
+      }
+    })());
+
+    return c.json({
+      success: true,
+      requiresVerification: true,
+      token,
+      data: { user: userObj },
+      message: 'Account created. Please verify your email with the 6-digit confirmation code.',
+    });
   } catch (err: any) {
     return c.json({ success: false, error: err.message, stack: err.stack }, 500);
   }
@@ -265,6 +305,7 @@ authRoutes.post('/verify-email/confirm-otp', jwtMiddleware, async (c) => {
 
     await db.update(users).set({ 
       emailVerified: true,
+      status: 'ACTIVE',
       verificationToken: null,
       verificationExpiresAt: null
     }).where(eq(users.id, user.id));
@@ -290,12 +331,17 @@ authRoutes.post('/profile/update', jwtMiddleware, async (c) => {
     };
 
     if (body.email && body.email !== user.email) {
+      const emailValidation = await validateEmail(body.email);
+      if (!emailValidation.isValid) {
+        return c.json({ success: false, error: emailValidation.error || 'Invalid email address' }, 400);
+      }
+      const normalizedEmail = emailValidation.normalizedEmail;
       // Check if new email is already in use
-      const existing = await db.select().from(users).where(eq(users.email, body.email)).get();
+      const existing = await db.select().from(users).where(eq(users.email, normalizedEmail)).get();
       if (existing) {
         return c.json({ success: false, error: 'Email already in use by another account' }, 400);
       }
-      updateData.email = body.email;
+      updateData.email = normalizedEmail;
       updateData.emailVerified = false; // Reset verification status
     }
 

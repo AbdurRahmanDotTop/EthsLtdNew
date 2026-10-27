@@ -467,6 +467,36 @@ export async function sendWelcomeNotification(user: { email: string; name?: stri
   });
 }
 
+export async function sendEmailVerificationOtpNotification(data: { email: string; otpCode: string; verifyUrl?: string }) {
+  const html = buildEmailTemplate({
+    title: `Verify Your Email Address`,
+    preheader: `Your 6-digit email verification code is ${data.otpCode}`,
+    contentHtml: `
+      <p>Thank you for registering with <strong>ETHSLTD</strong>. To complete your account security setup and activate full trading access, please verify your email address.</p>
+      <p>Use your 6-digit confirmation code below:</p>
+      <div style="text-align: center; margin: 24px 0;">
+        <div class="otp-code">${data.otpCode}</div>
+      </div>
+      <p style="font-size: 13px; color: #9CA3AF;">This verification code expires in <strong>15 minutes</strong>. If you did not create an ETHSLTD account, please disregard this email.</p>
+    `,
+    callToAction: data.verifyUrl
+      ? {
+          text: "Verify Account Now",
+          url: data.verifyUrl,
+        }
+      : undefined,
+    noteText: "ETHSLTD Security: Never disclose your OTP code or credentials to anyone.",
+  });
+
+  return sendEmail({
+    to: data.email,
+    subject: `Confirm Your Email: ${data.otpCode} - ETHSLTD Verification`,
+    eventType: "EMAIL_VERIFICATION",
+    category: EmailCategory.VERIFICATION,
+    html,
+  });
+}
+
 export async function sendPasswordResetNotification(data: { email: string; otpCode: string; resetUrl: string }) {
   const html = buildEmailTemplate({
     title: `Password Reset Request`,
@@ -776,8 +806,10 @@ export async function sendLoginAlertNotification(data: {
   });
 }
 
+export type AdminEventType = "REGISTRATION" | "REGISTRATION_VERIFIED" | "DEPOSIT" | "WITHDRAWAL" | "KYC";
+
 export async function sendAdminEventNotification(data: {
-  eventType: "REGISTRATION" | "DEPOSIT" | "WITHDRAWAL" | "KYC";
+  eventType: AdminEventType;
   title: string;
   message: string;
   details?: Record<string, string | number | boolean>;
@@ -792,7 +824,7 @@ export async function sendAdminEventNotification(data: {
 
     // Check preference flags if config exists
     if (config) {
-      if (data.eventType === "REGISTRATION" && config.notifyOnRegistration === false) return { success: true };
+      if ((data.eventType === "REGISTRATION" || data.eventType === "REGISTRATION_VERIFIED") && config.notifyOnRegistration === false) return { success: true };
       if (data.eventType === "DEPOSIT" && config.notifyOnDeposit === false) return { success: true };
       if (data.eventType === "WITHDRAWAL" && config.notifyOnWithdrawal === false) return { success: true };
       if (data.eventType === "KYC" && config.notifyOnKyc === false) return { success: true };

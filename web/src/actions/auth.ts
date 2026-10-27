@@ -3,6 +3,10 @@
 import prisma, { DBClient } from "@/lib/prisma";
 import { hashPassword, verifyPassword, setAuthCookie, clearAuthCookie, getSession } from "@/lib/auth";
 import crypto from "crypto";
+import { headers } from "next/headers";
+import { validateEmail } from "@/lib/email-validator";
+import { checkRateLimit, resetRateLimit, getClientIp } from "@/lib/rate-limiter";
+import { verifyTurnstileToken } from "@/lib/turnstile";
 import {
   sendWelcomeNotification,
   sendAdminEventNotification,
@@ -11,6 +15,7 @@ import {
   sendPasswordChangedNotification,
   sendPinChangedNotification,
   sendLoginAlertNotification,
+  sendEmailVerificationOtpNotification,
 } from "@/lib/email";
 
 export async function loginUser(formData: { email: string; password: string }) {
@@ -89,9 +94,56 @@ export async function registerUser(formData: {
   password: string;
   name?: string;
   transactionPin?: string;
+  turnstileToken?: string;
+  honeypot?: string;
+  submissionTiming?: number;
 }) {
   try {
-    const { email, password, name, transactionPin } = formData;
+    const { email, password, name, transactionPin, turnstileToken, honeypot, submissionTiming } = formData;
+
+    // 1. Honeypot check (Bots fill invisible fields)
+    if (honeypot && honeypot.trim() !== "") {
+      console.warn("Bot registration attempt caught by honeypot:", honeypot);
+      return { success: false, error: "Automated registration detected and blocked." };
+    }
+
+    // 2. Minimum form submission timing check (Humans take > 1 second)
+    if (submissionTiming && Date.now() - submissionTiming < 800) {
+      console.warn("Registration rejected due to abnormally fast submission:", Date.now() - submissionTiming);
+      return { success: false, error: "Suspicious automated activity detected. Please try again." };
+    }
+
+    // 3. Client IP extraction
+    let clientIp = "127.0.0.1";
+    try {
+      const headersList = await headers();
+      clientIp = getClientIp(headersList);
+    } catch {
+      // In test runner or non-request environment, headers() is unavailable
+    }
+
+    // 4. IP-level Rate Limiting (Max 5 registration attempts per IP per 15 minutes, 100 in CLI_TEST_MODE)
+    const rateCheck = checkRateLimit(`register_ip:${clientIp}`, {
+      windowSeconds: 900,
+      maxRequests: process.env.CLI_TEST_MODE === "true" ? 100 : 5,
+    });
+    if (!rateCheck.allowed) {
+      return {
+        success: false,
+        error: rateCheck.error || "Too many registration attempts from your IP address. Please wait before retrying.",
+      };
+    }
+
+    // 5. Cloudflare Turnstile Verification (Server-Side)
+    const turnstileResult = await verifyTurnstileToken(turnstileToken, clientIp);
+    if (!turnstileResult.success) {
+      return {
+        success: false,
+        error: turnstileResult.error || "Security check failed. Please complete the captcha verification.",
+      };
+    }
+
+    // 6. Basic Input Validation
     if (!email || !password) {
       return { success: false, error: "Email and password are required." };
     }
@@ -100,7 +152,41 @@ export async function registerUser(formData: {
       return { success: false, error: "Password must be at least 6 characters." };
     }
 
-    const normalizedEmail = email.toLowerCase().trim();
+    // 7. Dynamic Email Validation & Anti-Spam Disposable Verification Engine
+    const emailValidation = await validateEmail(email);
+    if (!emailValidation.isValid) {
+      // Record blocked attempt in AuditLog
+      try {
+        const adminUser = await prisma.user.findFirst({
+          where: { role: { in: ["SUPER_ADMIN", "ADMIN"] } },
+          select: { id: true, email: true },
+        });
+
+        if (adminUser) {
+          await prisma.auditLog.create({
+            data: {
+              adminId: adminUser.id,
+              adminEmail: adminUser.email,
+              action: emailValidation.isDisposable ? "REGISTRATION_BLOCKED_DISPOSABLE_EMAIL" : "REGISTRATION_BLOCKED_INVALID_EMAIL",
+              targetType: "USER",
+              targetId: emailValidation.normalizedEmail || email,
+              details: `Blocked registration attempt for email: ${email} (Domain: @${emailValidation.domain || "invalid"}, Error: ${emailValidation.error}, IP: ${clientIp})`,
+            },
+          });
+        }
+      } catch (logErr) {
+        console.warn("Could not log blocked registration:", logErr);
+      }
+
+      return {
+        success: false,
+        error: emailValidation.error || "Disposable and temporary email addresses are not allowed.",
+      };
+    }
+
+    const normalizedEmail = emailValidation.normalizedEmail;
+
+    // 8. Prevent duplicate email registrations
     const existing = await prisma.user.findUnique({
       where: { email: normalizedEmail },
     });
@@ -109,7 +195,7 @@ export async function registerUser(formData: {
       return { success: false, error: "An account with this email already exists." };
     }
 
-    // Generate unique 6-digit UID
+    // 9. Generate unique 6-digit UID
     let uid = Math.floor(100000 + Math.random() * 900000);
     while (await prisma.user.findUnique({ where: { uid } })) {
       uid = Math.floor(100000 + Math.random() * 900000);
@@ -117,7 +203,7 @@ export async function registerUser(formData: {
 
     const passwordHash = await hashPassword(password);
 
-    // Create user and initialize wallets atomically
+    // 10. Atomic User and Wallet Creation (Marked as PENDING_VERIFICATION)
     const newUser = await prisma.$transaction(async (tx: DBClient) => {
       const user = await tx.user.create({
         data: {
@@ -127,12 +213,13 @@ export async function registerUser(formData: {
           uid,
           transactionPin: transactionPin || "123456",
           role: "USER",
-          status: "ACTIVE",
+          status: "PENDING_VERIFICATION",
           isKycVerified: false,
+          isEmailVerified: false,
         },
       });
 
-      // Create initial wallet accounts with strictly 0.0 balance (No automatic bonus)
+      // Create initial wallet accounts with strictly 0.0 balance
       await tx.wallet.createMany({
         data: [
           { userId: user.id, asset: "USDT", balance: 0.0, type: "Currency" },
@@ -144,10 +231,56 @@ export async function registerUser(formData: {
         ],
       });
 
+      // Audit Log for Auditability
+      await tx.auditLog.create({
+        data: {
+          adminId: user.id,
+          adminEmail: user.email,
+          action: "USER_REGISTERED_PENDING_VERIFICATION",
+          targetType: "USER",
+          targetId: user.id,
+          details: `User UID #${user.uid} registered from IP ${clientIp}. Status: PENDING_VERIFICATION.`,
+        },
+      });
+
       return user;
     });
 
-    // Set authenticated session cookie
+    // 11. Generate 6-Digit Email Verification Code & Token
+    const rawToken = crypto.randomBytes(24).toString("hex");
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 mins
+
+    await prisma.verificationToken.create({
+      data: {
+        identifier: normalizedEmail,
+        token: rawToken,
+        code: otpCode,
+        type: "EMAIL_VERIFICATION",
+        expiresAt,
+        used: false,
+        attempts: 0,
+      },
+    });
+
+    // 12. Send Email Verification OTP (No marketing welcome email until verified)
+    const origin = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+    const verifyUrl = `${origin}/verify-email?email=${encodeURIComponent(normalizedEmail)}`;
+
+    try {
+      await Promise.race([
+        sendEmailVerificationOtpNotification({
+          email: normalizedEmail,
+          otpCode,
+          verifyUrl,
+        }),
+        new Promise((resolve) => setTimeout(resolve, 1500)),
+      ]);
+    } catch (e) {
+      console.warn("Failed to dispatch verification email:", e);
+    }
+
+    // 13. Set authenticated session cookie so user can immediately verify
     await setAuthCookie({
       userId: newUser.id,
       email: newUser.email,
@@ -155,33 +288,261 @@ export async function registerUser(formData: {
       uid: newUser.uid,
     });
 
-    // Send Welcome Email and Admin Notification (awaited for Cloudflare Workers isolate persistence)
-    try {
-      await Promise.allSettled([
-        sendWelcomeNotification({
-          email: newUser.email,
-          name: newUser.name,
-          uid: newUser.uid,
-        }),
-        sendAdminEventNotification({
-          eventType: "REGISTRATION",
-          title: `New User Registered: #${newUser.uid}`,
-          message: `User ${newUser.email} (UID: #${newUser.uid}) has completed registration.`,
-          details: { Email: newUser.email, UID: newUser.uid, Time: new Date().toISOString() },
-        }),
-      ]);
-    } catch (e) {
-      console.warn("Notification dispatch exception:", e);
-    }
-
     return {
       success: true,
       role: newUser.role,
-      redirectUrl: "/assets",
+      requiresVerification: true,
+      email: normalizedEmail,
+      redirectUrl: `/verify-email?email=${encodeURIComponent(normalizedEmail)}`,
     };
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : "Failed to create account.";
     console.error("registerUser error:", err);
+    return { success: false, error: errorMsg };
+  }
+}
+
+/**
+ * Resend Email Verification OTP with strict 60-second cooldown and rate limiting
+ */
+export async function requestEmailVerificationOtp(customEmail?: string) {
+  try {
+    const session = await getSession();
+    let emailToVerify: string | null = null;
+
+    if (session?.userId) {
+      const user = await prisma.user.findUnique({ where: { id: session.userId } });
+      if (user) {
+        if (user.isEmailVerified && user.status === "ACTIVE") {
+          return { success: false, error: "Your email address is already verified." };
+        }
+        emailToVerify = user.email;
+      }
+    }
+
+    if (!emailToVerify && customEmail) {
+      emailToVerify = customEmail.toLowerCase().trim();
+    }
+
+    if (!emailToVerify) {
+      return { success: false, error: "Please log in or provide your registered email address." };
+    }
+
+    // Extract IP and rate limit
+    let clientIp = "127.0.0.1";
+    try {
+      const headersList = await headers();
+      clientIp = getClientIp(headersList);
+    } catch {
+      // Outside active Next.js request context
+    }
+
+    // IP-level rate limit: Max 10 OTP dispatches per IP per 15 minutes
+    const ipRateCheck = checkRateLimit(`otp_ip:${clientIp}`, {
+      windowSeconds: 900,
+      maxRequests: 10,
+    });
+    if (!ipRateCheck.allowed) {
+      return { success: false, error: "Too many verification requests from your network. Please wait before retrying." };
+    }
+
+    // Email-level Rate Limiting: Max 4 requests per 15 minutes with 60-second cooldown
+    const rateCheck = checkRateLimit(`otp_email:${emailToVerify}`, {
+      windowSeconds: 900,
+      maxRequests: 4,
+      minCooldownSeconds: 60,
+    });
+
+    if (!rateCheck.allowed) {
+      return { success: false, error: rateCheck.error || "Please wait 60 seconds before requesting a new code." };
+    }
+
+    // Invalidate old active verification tokens for this email
+    await prisma.verificationToken.updateMany({
+      where: {
+        identifier: emailToVerify,
+        type: "EMAIL_VERIFICATION",
+        used: false,
+      },
+      data: { used: true },
+    });
+
+    // Generate new secure 6-digit OTP
+    const rawToken = crypto.randomBytes(24).toString("hex");
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 mins
+
+    await prisma.verificationToken.create({
+      data: {
+        identifier: emailToVerify,
+        token: rawToken,
+        code: otpCode,
+        type: "EMAIL_VERIFICATION",
+        expiresAt,
+        used: false,
+        attempts: 0,
+      },
+    });
+
+    const origin = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+    const verifyUrl = `${origin}/verify-email?email=${encodeURIComponent(emailToVerify)}`;
+
+    try {
+      await sendEmailVerificationOtpNotification({
+        email: emailToVerify,
+        otpCode,
+        verifyUrl,
+      });
+    } catch (e) {
+      console.warn("Failed to dispatch verification OTP email:", e);
+    }
+
+    return {
+      success: true,
+      message: "A new 6-digit verification code has been dispatched to your email.",
+    };
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : "Failed to send verification code.";
+    console.error("requestEmailVerificationOtp error:", err);
+    return { success: false, error: errorMsg };
+  }
+}
+
+/**
+ * Verify Email with 6-digit OTP code
+ */
+export async function verifyEmailOtp(formData: { code: string; email?: string }) {
+  try {
+    const { code, email: paramEmail } = formData;
+    if (!code || code.trim().length !== 6) {
+      return { success: false, error: "Please enter the complete 6-digit verification code." };
+    }
+
+    const cleanCode = code.trim();
+    const session = await getSession();
+
+    let targetEmail: string | null = null;
+    let userId: string | null = null;
+
+    if (session?.userId) {
+      const user = await prisma.user.findUnique({ where: { id: session.userId } });
+      if (user) {
+        targetEmail = user.email;
+        userId = user.id;
+      }
+    }
+
+    if (!targetEmail && paramEmail) {
+      const user = await prisma.user.findUnique({ where: { email: paramEmail.toLowerCase().trim() } });
+      if (user) {
+        targetEmail = user.email;
+        userId = user.id;
+      }
+    }
+
+    if (!targetEmail || !userId) {
+      return { success: false, error: "Account could not be identified. Please log in first." };
+    }
+
+    // Find active token record
+    const tokenRecord = await prisma.verificationToken.findFirst({
+      where: {
+        identifier: targetEmail,
+        type: "EMAIL_VERIFICATION",
+        used: false,
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (!tokenRecord) {
+      return { success: false, error: "No pending verification code found. Please request a new one." };
+    }
+
+    if (new Date() > tokenRecord.expiresAt) {
+      await prisma.verificationToken.update({ where: { id: tokenRecord.id }, data: { used: true } });
+      return { success: false, error: "Verification code has expired. Please request a new code." };
+    }
+
+    if (tokenRecord.attempts >= 5) {
+      await prisma.verificationToken.update({ where: { id: tokenRecord.id }, data: { used: true } });
+      return { success: false, error: "Too many incorrect attempts. Please request a new code." };
+    }
+
+    if (tokenRecord.code !== cleanCode) {
+      await prisma.verificationToken.update({
+        where: { id: tokenRecord.id },
+        data: { attempts: { increment: 1 } },
+      });
+      return { success: false, error: "Invalid verification code. Please check your email and try again." };
+    }
+
+    // Atomically activate account and mark verified
+    const updatedUser = await prisma.$transaction(async (tx: DBClient) => {
+      await tx.verificationToken.update({
+        where: { id: tokenRecord.id },
+        data: { used: true },
+      });
+
+      const user = await tx.user.update({
+        where: { id: userId! },
+        data: {
+          isEmailVerified: true,
+          status: "ACTIVE",
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          adminId: user.id,
+          adminEmail: user.email,
+          action: "EMAIL_VERIFICATION_SUCCESS",
+          targetType: "USER",
+          targetId: user.id,
+          details: `User UID #${user.uid} verified their email address successfully. Status set to ACTIVE.`,
+        },
+      });
+
+      return user;
+    });
+
+    // Reset rate limiter on successful verification
+    resetRateLimit(`otp_email:${targetEmail}`);
+
+    // Send Welcome Notification & Admin Alert now that user is verified!
+    try {
+      await Promise.allSettled([
+        sendWelcomeNotification({
+          email: updatedUser.email,
+          name: updatedUser.name,
+          uid: updatedUser.uid,
+        }),
+        sendAdminEventNotification({
+          eventType: "REGISTRATION_VERIFIED",
+          title: `User Verified: #${updatedUser.uid}`,
+          message: `User ${updatedUser.email} (UID: #${updatedUser.uid}) has verified their email and activated their account.`,
+          details: { Email: updatedUser.email, UID: updatedUser.uid, Time: new Date().toISOString() },
+        }),
+      ]);
+    } catch (e) {
+      console.warn("Welcome email notification dispatch exception:", e);
+    }
+
+    // Ensure active authenticated session cookie is established for the verified user
+    await setAuthCookie({
+      userId: updatedUser.id,
+      email: updatedUser.email,
+      role: updatedUser.role,
+      uid: updatedUser.uid,
+    });
+
+    return {
+      success: true,
+      message: "Email successfully verified! Your account is now active.",
+      redirectUrl: "/assets",
+    };
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : "Failed to verify email.";
+    console.error("verifyEmailOtp error:", err);
     return { success: false, error: errorMsg };
   }
 }
@@ -207,6 +568,7 @@ export async function getAuthSession() {
       role: true,
       status: true,
       isKycVerified: true,
+      isEmailVerified: true,
     },
   });
 

@@ -16,6 +16,7 @@ export type Bindings = {
   CLOUDFLARE_EMAIL?: string;
   R2_BACKUPS?: R2Bucket;
   JWT_SECRET?: string;
+  TURNSTILE_SECRET_KEY?: string;
   MT5_API_KEY?: string;
   MT5_SERVER_ID?: string;
 };

@@ -28,6 +28,8 @@
   "vars": {
     "NEXT_PUBLIC_API_URL": "https://api-ethsltd-new.ethsltd.workers.dev",
     "NEXT_PUBLIC_APP_URL": "https://ethsltd.com",
+    "NEXT_PUBLIC_TURNSTILE_SITE_KEY": "0x4AAAAAAFn4uW-glCk6yige",
+    "TURNSTILE_SECRET_KEY": "0x4AAAAAAFn4uXDwpUDV7pZJSdbAQ9Wf3XY",
     "JWT_SECRET": "ethsltd_super_secret_jwt_key_2026_production",
     "EMAIL_FROM": "support@ethsltd.com",
     "EMAIL_FROM_NAME": "ETHSLTD",

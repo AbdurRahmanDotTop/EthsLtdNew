@@ -26,8 +26,8 @@ async function runRegressionTests() {
   }
 
   const timestamp = Date.now();
-  const testUserEmail = `zero_user_${timestamp}@ethsltd.test`;
-  const testRmEmail = `zero_rm_${timestamp}@ethsltd.test`;
+  const testUserEmail = `zero_user_${timestamp}@ethsltd.com`;
+  const testRmEmail = `zero_rm_${timestamp}@ethsltd.com`;
 
   let createdUserId: string | null = null;
   let createdRmId: string | null = null;
@@ -42,9 +42,11 @@ async function runRegressionTests() {
       password: "ZeroPassword123!",
       name: "Zero Normal User",
       transactionPin: "123456",
+      turnstileToken: "DUMMY_TOKEN_DEV",
+      submissionTiming: Date.now() - 3000,
     });
 
-    assert(regRes.success === true, "User registration succeeds without error");
+    assert(regRes.success === true, "User registration succeeds without error", regRes.error);
 
     const createdUser = await prisma.user.findUnique({
       where: { email: testUserEmail },

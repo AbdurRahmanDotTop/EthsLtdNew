@@ -12,6 +12,7 @@ migrations_dir = "../database/migrations"
 
 [vars]
 JWT_SECRET = "ethsltd_super_secret_jwt_key_2026_production"
+TURNSTILE_SECRET_KEY = "0x4AAAAAAFn4uXDwpUDV7pZJSdbAQ9Wf3XY"
 # BREVO_API_KEY should be set via wrangler secret or Cloudflare dashboard
 CREGIS_PROXY_URL = "https://techilyfly.com/ethsltd/cregis-proxy.php"
 CREGIS_PROXY_SECRET = "ETHSLTD_CREGIS_PROXY_SECURE_TOKEN_2026"

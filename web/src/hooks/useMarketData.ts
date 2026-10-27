@@ -38,7 +38,7 @@ export function useMarketData(symbol: string = "btcusdt", precision?: number) {
       try {
         const res = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${upperSymbol}`);
         if (!res.ok) return;
-        const parsed = await res.json();
+        const parsed = (await res.json()) as any;
         if (!isDisposed && parsed && parsed.lastPrice) {
           const numPrice = parseFloat(parsed.lastPrice);
           const numHigh = parseFloat(parsed.highPrice);

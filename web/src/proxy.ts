@@ -15,7 +15,7 @@ interface SessionPayload {
   uid?: number;
 }
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const token = request.cookies.get(COOKIE_NAME)?.value;
 
@@ -112,3 +112,6 @@ export const config = {
     "/register",
   ],
 };
+
+export { proxy as middleware };
+

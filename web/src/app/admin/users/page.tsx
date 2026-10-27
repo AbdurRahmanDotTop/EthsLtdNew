@@ -1,24 +1,17 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { 
-  Users, 
   Search, 
-  Shield, 
   CheckCircle, 
   XCircle, 
   MinusCircle,
-  AlertTriangle,
   User,
   Edit,
   KeyRound,
   UserCheck,
-  UserX,
   X,
   Star,
-  CreditCard,
-  Phone,
-  Mail,
   Loader2,
   PlusCircle,
   DollarSign,
@@ -34,16 +27,87 @@ import {
   adminRemoveRmFromUser,
   adminResetUserPin,
   getAllRmsAdmin,
+  type UserStatus,
+  type UserRole,
+  type UpdateUserProfileAdminInput,
 } from "@/actions/admin";
 import { toast } from "sonner";
 
+interface WalletRecord {
+  id: string;
+  asset: string;
+  type: string;
+  balance: number;
+}
+
+interface UserListItem {
+  id: string;
+  uid: number;
+  email: string;
+  name: string | null;
+  role: UserRole;
+  status: UserStatus;
+  isKycVerified: boolean;
+  phone?: string | null;
+  wallets: WalletRecord[];
+  createdAt: Date | string;
+  _count?: {
+    orders: number;
+    transactions: number;
+  };
+}
+
+interface RmOption {
+  id: string;
+  name: string | null;
+  email: string;
+  status: string;
+  rmCode?: string;
+  activeClientsCount?: number;
+}
+
+interface RmClientConnectionItem {
+  id: string;
+  rmId: string;
+  status: string;
+  requestedAt: Date | string;
+  rm?: {
+    id: string;
+    uid: number;
+    name: string | null;
+    email: string;
+    rmProfile?: {
+      rmCode: string;
+      designation?: string | null;
+    } | null;
+  } | null;
+}
+
+interface RmReviewItem {
+  id: string;
+  rating: number;
+  comment?: string | null;
+  createdAt: Date | string;
+  rm?: {
+    id: string;
+    uid: number;
+    name: string | null;
+    email: string;
+  } | null;
+}
+
+interface UserProfileDetails extends UserListItem {
+  rmClientConnections?: RmClientConnectionItem[];
+  rmReviewsGiven?: RmReviewItem[];
+}
+
 export default function AdminUsersPage() {
-  const [users, setUsers] = useState<any[]>([]);
+  const [users, setUsers] = useState<UserListItem[]>([]);
   const [search, setSearch] = useState("");
   const [isLoading, setIsLoading] = useState(true);
 
   // Balance Adjustment Modal State
-  const [selectedUser, setSelectedUser] = useState<any | null>(null);
+  const [selectedUser, setSelectedUser] = useState<UserListItem | null>(null);
   const [adjustAsset, setAdjustAsset] = useState("USDT");
   const [adjustType, setAdjustType] = useState<"CREDIT" | "DEBIT">("CREDIT");
   const [adjustAmount, setAdjustAmount] = useState("");
@@ -51,17 +115,17 @@ export default function AdminUsersPage() {
   const [isSubmittingAdjust, setIsSubmittingAdjust] = useState(false);
 
   // Available RMs for assignment
-  const [availableRms, setAvailableRms] = useState<any[]>([]);
+  const [availableRms, setAvailableRms] = useState<RmOption[]>([]);
 
   // User Profile Modal State
-  const [profileModalUser, setProfileModalUser] = useState<any | null>(null);
-  const [fullUserDetails, setFullUserDetails] = useState<any | null>(null);
+  const [profileModalUser, setProfileModalUser] = useState<UserListItem | null>(null);
+  const [fullUserDetails, setFullUserDetails] = useState<UserProfileDetails | null>(null);
   const [isLoadingProfile, setIsLoadingProfile] = useState(false);
-  const [profileForm, setProfileForm] = useState({
+  const [profileForm, setProfileForm] = useState<UpdateUserProfileAdminInput>({
     name: "",
     phone: "",
-    status: "ACTIVE" as "ACTIVE" | "FROZEN" | "BANNED",
-    role: "USER" as "USER" | "ADMIN" | "SUPER_ADMIN" | "RM",
+    status: "ACTIVE",
+    role: "USER",
     isKycVerified: false,
   });
   const [selectedRmId, setSelectedRmId] = useState("");
@@ -70,50 +134,79 @@ export default function AdminUsersPage() {
   const [isRemovingRm, setIsRemovingRm] = useState(false);
   const [isResettingPin, setIsResettingPin] = useState(false);
 
-  const loadUsers = async () => {
+  const loadUsers = useCallback(async () => {
     try {
       const [usersData, rmsData] = await Promise.all([
         getAllUsers(),
         getAllRmsAdmin(),
       ]);
-      setUsers(usersData);
-      setAvailableRms(rmsData.filter((r) => r.status === "ACTIVE"));
-    } catch (e: any) {
-      toast.error(e.message || "Failed to load users");
+      setUsers(usersData as unknown as UserListItem[]);
+      setAvailableRms(rmsData.filter((r) => r.status === "ACTIVE") as unknown as RmOption[]);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast.error(msg || "Failed to load users");
     } finally {
       setIsLoading(false);
     }
-  };
-
-  useEffect(() => {
-    loadUsers();
   }, []);
 
-  const handleStatusChange = async (userId: string, newStatus: "ACTIVE" | "FROZEN" | "BANNED") => {
+  useEffect(() => {
+    let ignore = false;
+    async function init() {
+      try {
+        const [usersData, rmsData] = await Promise.all([
+          getAllUsers(),
+          getAllRmsAdmin(),
+        ]);
+        if (!ignore) {
+          setUsers(usersData as unknown as UserListItem[]);
+          setAvailableRms(rmsData.filter((r) => r.status === "ACTIVE") as unknown as RmOption[]);
+        }
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        toast.error(msg || "Failed to load users");
+      } finally {
+        if (!ignore) {
+          setIsLoading(false);
+        }
+      }
+    }
+    void init();
+    return () => {
+      ignore = true;
+    };
+  }, []);
+
+  const handleStatusChange = async (
+    userId: string,
+    newStatus: UserStatus
+  ) => {
     try {
       const res = await updateUserStatus(userId, newStatus);
       if (res.success) {
         toast.success(`User status updated to ${newStatus}`);
         loadUsers();
       }
-    } catch (e: any) {
-      toast.error(e.message);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast.error(msg);
     }
   };
 
-  const handleRoleChange = async (userId: string, newRole: "USER" | "ADMIN" | "SUPER_ADMIN" | "RM") => {
+  const handleRoleChange = async (userId: string, newRole: UserRole) => {
     try {
       const res = await updateUserRole(userId, newRole);
       if (res.success) {
         toast.success(`User role updated to ${newRole}`);
         loadUsers();
       }
-    } catch (e: any) {
-      toast.error(e.message);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast.error(msg);
     }
   };
 
-  const handleAdjustBalance = async (e: React.FormEvent) => {
+  const handleAdjustBalance = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!selectedUser) return;
     const amount = parseFloat(adjustAmount);
@@ -145,44 +238,47 @@ export default function AdminUsersPage() {
       } else {
         toast.error(res.error || "Adjustment failed.");
       }
-    } catch (err: any) {
-      toast.error(err.message || "An error occurred.");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "An error occurred.";
+      toast.error(msg);
     } finally {
       setIsSubmittingAdjust(false);
     }
   };
 
-  const handleOpenProfileModal = async (user: any) => {
+  const handleOpenProfileModal = async (user: UserListItem) => {
     setProfileModalUser(user);
     setIsLoadingProfile(true);
     setProfileForm({
       name: user.name || "",
       phone: user.phone || "",
-      status: user.status,
-      role: user.role,
+      status: user.status || "ACTIVE",
+      role: user.role || "USER",
       isKycVerified: Boolean(user.isKycVerified),
     });
 
     try {
-      const res: any = await getUserDetailsAdmin(user.id);
+      const res = await getUserDetailsAdmin(user.id);
       if (res.success && res.user) {
-        setFullUserDetails(res.user);
-        const activeConn = (res.user.rmClientConnections || [])?.find(
-          (c: any) => c.status === "ACTIVE" || c.status === "ACCEPTED" || c.status === "REQUESTED"
+        const userDetails = res.user as UserProfileDetails;
+        setFullUserDetails(userDetails);
+        const activeConn = userDetails.rmClientConnections?.find(
+          (c: RmClientConnectionItem) => c.status === "ACTIVE" || c.status === "ACCEPTED" || c.status === "REQUESTED"
         );
         setSelectedRmId(activeConn ? activeConn.rmId : "");
       } else {
         setFullUserDetails(null);
       }
-    } catch (err: any) {
-      toast.error(err.message || "Failed to load user profile details.");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error(msg || "Failed to load user profile details.");
       setFullUserDetails(null);
     } finally {
       setIsLoadingProfile(false);
     }
   };
 
-  const handleSaveProfileSubmit = async (e: React.FormEvent) => {
+  const handleSaveProfileSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!profileModalUser) return;
 
@@ -194,12 +290,13 @@ export default function AdminUsersPage() {
         loadUsers();
         // Refresh detail view
         const refreshed = await getUserDetailsAdmin(profileModalUser.id);
-        if (refreshed.success) setFullUserDetails(refreshed.user);
+        if (refreshed.success && refreshed.user) setFullUserDetails(refreshed.user as UserProfileDetails);
       } else {
         toast.error(res.error || "Failed to update profile.");
       }
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error(msg);
     } finally {
       setIsSavingProfile(false);
     }
@@ -218,12 +315,13 @@ export default function AdminUsersPage() {
         toast.success(res.message);
         loadUsers();
         const refreshed = await getUserDetailsAdmin(profileModalUser.id);
-        if (refreshed.success) setFullUserDetails(refreshed.user);
+        if (refreshed.success && refreshed.user) setFullUserDetails(refreshed.user as UserProfileDetails);
       } else {
         toast.error(res.error || "Failed to assign RM.");
       }
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to assign RM.";
+      toast.error(msg);
     } finally {
       setIsAssigningRm(false);
     }
@@ -241,12 +339,13 @@ export default function AdminUsersPage() {
         setSelectedRmId("");
         loadUsers();
         const refreshed = await getUserDetailsAdmin(profileModalUser.id);
-        if (refreshed.success) setFullUserDetails(refreshed.user);
+        if (refreshed.success && refreshed.user) setFullUserDetails(refreshed.user as UserProfileDetails);
       } else {
         toast.error(res.error || "Failed to remove RM assignment.");
       }
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to remove RM assignment.";
+      toast.error(msg);
     } finally {
       setIsRemovingRm(false);
     }
@@ -264,8 +363,9 @@ export default function AdminUsersPage() {
       } else {
         toast.error(res.error || "Failed to reset PIN.");
       }
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to reset PIN.";
+      toast.error(msg);
     } finally {
       setIsResettingPin(false);
     }
@@ -325,7 +425,7 @@ export default function AdminUsersPage() {
               </thead>
               <tbody className="divide-y divide-white/5 font-sans">
                 {filteredUsers.map((user) => {
-                  const usdtWallet = user.wallets.find((w: any) => w.asset === "USDT" && w.type === "Currency");
+                  const usdtWallet = user.wallets.find((w: WalletRecord) => w.asset === "USDT" && w.type === "Currency");
                   const balance = usdtWallet ? usdtWallet.balance : 0.0;
 
                   return (
@@ -350,7 +450,7 @@ export default function AdminUsersPage() {
                       <td className="px-4 py-4 font-mono">
                         <select
                           value={user.role}
-                          onChange={(e) => handleRoleChange(user.id, e.target.value as any)}
+                          onChange={(e) => handleRoleChange(user.id, e.target.value as UserRole)}
                           className="bg-[#1E202B] border border-white/10 rounded-lg px-2.5 py-1 text-[11px] font-semibold text-white outline-none cursor-pointer"
                         >
                           <option value="USER">USER</option>
@@ -363,16 +463,22 @@ export default function AdminUsersPage() {
                       <td className="px-4 py-4 font-mono">
                         <select
                           value={user.status}
-                          onChange={(e) => handleStatusChange(user.id, e.target.value as any)}
+                          onChange={(e) => handleStatusChange(user.id, e.target.value as UserStatus)}
                           className={`border rounded-lg px-2.5 py-1 text-[11px] font-bold outline-none cursor-pointer ${
                             user.status === "ACTIVE"
                               ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                              : user.status === "PENDING_VERIFICATION"
+                              ? "bg-blue-500/10 text-blue-400 border-blue-500/30"
+                              : user.status === "FLAGGED_SPAM"
+                              ? "bg-purple-500/10 text-purple-400 border-purple-500/30 font-bold"
                               : user.status === "FROZEN"
                               ? "bg-amber-500/10 text-amber-400 border-amber-500/30"
                               : "bg-rose-500/10 text-rose-400 border-rose-500/30"
                           }`}
                         >
                           <option value="ACTIVE" className="bg-[#161822] text-white">ACTIVE</option>
+                          <option value="PENDING_VERIFICATION" className="bg-[#161822] text-white">PENDING_VERIFICATION</option>
+                          <option value="FLAGGED_SPAM" className="bg-[#161822] text-white">FLAGGED_SPAM</option>
                           <option value="FROZEN" className="bg-[#161822] text-white">FROZEN</option>
                           <option value="BANNED" className="bg-[#161822] text-white">BANNED</option>
                         </select>
@@ -581,8 +687,8 @@ export default function AdminUsersPage() {
                         <label className="block text-gray-300 font-semibold mb-1">Full Name</label>
                         <input
                           type="text"
-                          value={profileForm.name}
-                          onChange={(e) => setProfileForm({ ...profileForm, name: e.target.value })}
+                          value={profileForm.name || ""}
+                          onChange={(e) => setProfileForm((prev) => ({ ...prev, name: e.target.value }))}
                           placeholder="Client name"
                           className="w-full bg-[#161822] border border-white/10 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-[#00A070]"
                         />
@@ -591,8 +697,8 @@ export default function AdminUsersPage() {
                         <label className="block text-gray-300 font-semibold mb-1">Phone Number</label>
                         <input
                           type="text"
-                          value={profileForm.phone}
-                          onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })}
+                          value={profileForm.phone || ""}
+                          onChange={(e) => setProfileForm((prev) => ({ ...prev, phone: e.target.value }))}
                           placeholder="+1234567890"
                           className="w-full bg-[#161822] border border-white/10 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-[#00A070]"
                         />
@@ -603,11 +709,13 @@ export default function AdminUsersPage() {
                       <div>
                         <label className="block text-gray-300 font-semibold mb-1">Account Status</label>
                         <select
-                          value={profileForm.status}
-                          onChange={(e) => setProfileForm({ ...profileForm, status: e.target.value as any })}
+                          value={profileForm.status || "ACTIVE"}
+                          onChange={(e) => setProfileForm((prev) => ({ ...prev, status: e.target.value as UserStatus }))}
                           className="w-full bg-[#161822] border border-white/10 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-[#00A070]"
                         >
                           <option value="ACTIVE">ACTIVE</option>
+                          <option value="PENDING_VERIFICATION">PENDING_VERIFICATION</option>
+                          <option value="FLAGGED_SPAM">FLAGGED_SPAM</option>
                           <option value="FROZEN">FROZEN</option>
                           <option value="BANNED">BANNED</option>
                         </select>
@@ -616,8 +724,8 @@ export default function AdminUsersPage() {
                       <div>
                         <label className="block text-gray-300 font-semibold mb-1">Account Role</label>
                         <select
-                          value={profileForm.role}
-                          onChange={(e) => setProfileForm({ ...profileForm, role: e.target.value as any })}
+                          value={profileForm.role || "USER"}
+                          onChange={(e) => setProfileForm((prev) => ({ ...prev, role: e.target.value as UserRole }))}
                           className="w-full bg-[#161822] border border-white/10 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-[#00A070]"
                         >
                           <option value="USER">USER</option>
@@ -631,7 +739,7 @@ export default function AdminUsersPage() {
                         <label className="block text-gray-300 font-semibold mb-1">KYC Verification</label>
                         <select
                           value={profileForm.isKycVerified ? "VERIFIED" : "UNVERIFIED"}
-                          onChange={(e) => setProfileForm({ ...profileForm, isKycVerified: e.target.value === "VERIFIED" })}
+                          onChange={(e) => setProfileForm((prev) => ({ ...prev, isKycVerified: e.target.value === "VERIFIED" }))}
                           className="w-full bg-[#161822] border border-white/10 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-[#00A070]"
                         >
                           <option value="VERIFIED">Verified</option>
@@ -661,9 +769,10 @@ export default function AdminUsersPage() {
                     </div>
 
                     {/* Current Assigned RM Status */}
-                    {fullUserDetails?.rmClientConnections?.some((c: any) => c.status === "ACTIVE" || c.status === "ACCEPTED" || c.status === "REQUESTED") ? (
+                    {fullUserDetails?.rmClientConnections?.some((c: RmClientConnectionItem) => c.status === "ACTIVE" || c.status === "ACCEPTED" || c.status === "REQUESTED") ? (
                       (() => {
-                        const conn = fullUserDetails.rmClientConnections.find((c: any) => c.status === "ACTIVE" || c.status === "ACCEPTED" || c.status === "REQUESTED");
+                        const conn = fullUserDetails.rmClientConnections?.find((c: RmClientConnectionItem) => c.status === "ACTIVE" || c.status === "ACCEPTED" || c.status === "REQUESTED");
+                        if (!conn) return null;
                         return (
                           <div className="flex items-center justify-between p-3 bg-[#161822] border border-[#00A070]/30 rounded-xl">
                             <div>
@@ -728,7 +837,7 @@ export default function AdminUsersPage() {
 
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                       {["USDT", "BTC", "ETH", "ACH"].map((asset) => {
-                        const wallet = fullUserDetails?.wallets?.find((w: any) => w.asset === asset && w.type === "Currency");
+                        const wallet = fullUserDetails?.wallets?.find((w: WalletRecord) => w.asset === asset && w.type === "Currency");
                         const bal = wallet ? wallet.balance : 0;
                         return (
                           <div key={asset} className="p-3 bg-[#161822] border border-white/5 rounded-xl">
@@ -753,7 +862,7 @@ export default function AdminUsersPage() {
                       <div>
                         <div className="font-bold text-white">Transaction PIN Management</div>
                         <div className="text-[11px] text-gray-400 mt-0.5">
-                          Reset the user's secondary transfer PIN to the system default (<span className="font-mono text-[#00A070]">123456</span>) if locked or forgotten.
+                          Reset the user&apos;s secondary transfer PIN to the system default (<span className="font-mono text-[#00A070]">123456</span>) if locked or forgotten.
                         </div>
                       </div>
                       <button
@@ -776,7 +885,7 @@ export default function AdminUsersPage() {
                       </h4>
 
                       <div className="space-y-2">
-                        {fullUserDetails.rmReviewsGiven.map((rev: any) => (
+                        {fullUserDetails.rmReviewsGiven.map((rev: RmReviewItem) => (
                           <div key={rev.id} className="p-3 bg-[#161822] border border-white/5 rounded-xl space-y-1">
                             <div className="flex items-center justify-between">
                               <span className="font-semibold text-white">Manager: {rev.rm?.name}</span>
@@ -785,7 +894,7 @@ export default function AdminUsersPage() {
                                 <span>{rev.rating}.0 / 5</span>
                               </div>
                             </div>
-                            {rev.comment && <p className="text-gray-300 italic">"{rev.comment}"</p>}
+                            {rev.comment && <p className="text-gray-300 italic">&ldquo;{rev.comment}&rdquo;</p>}
                             <div className="text-[10px] text-gray-500 text-right">
                               {new Date(rev.createdAt).toLocaleDateString()}
                             </div>

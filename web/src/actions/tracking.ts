@@ -56,55 +56,45 @@ export async function getTrackingConfig(): Promise<TrackingConfigData> {
   }
 
   try {
-    const existing = await prisma.trackingConfig.findUnique({
-      where: { id: "default" },
-    });
+    // 1. Zero-WASM Fast Path for Cloudflare Workers: Query D1 directly via C++ binding
+    let existingRow: any = null;
+    try {
+      const { getCloudflareContext } = await import("@opennextjs/cloudflare");
+      const cf: any = getCloudflareContext({ async: false });
+      const db = cf?.env?.DB || (globalThis as any).DB;
+      if (db && typeof db.prepare === "function") {
+        existingRow = await db.prepare("SELECT * FROM TrackingConfig WHERE id = 'default'").first();
+      }
+    } catch {
+      // Non-Cloudflare or fallback below
+    }
 
-    if (existing) {
+    // 2. Fallback to Prisma if direct D1 binding was not used
+    if (!existingRow) {
+      existingRow = await prisma.trackingConfig.findUnique({
+        where: { id: "default" },
+      });
+    }
+
+    if (existingRow) {
       cachedTrackingConfig = {
-        id: existing.id,
-        metaPixelEnabled: Boolean(existing.metaPixelEnabled),
-        metaPixelId: existing.metaPixelId ?? DEFAULT_TRACKING_CONFIG.metaPixelId,
-        metaCustomScript: existing.metaCustomScript ?? null,
-        gtmEnabled: Boolean(existing.gtmEnabled),
-        gtmId: existing.gtmId ?? DEFAULT_TRACKING_CONFIG.gtmId,
-        gtmCustomScript: existing.gtmCustomScript ?? null,
-        customHeadCode: existing.customHeadCode ?? null,
-        customBodyCode: existing.customBodyCode ?? null,
-        trackAdminPages: Boolean(existing.trackAdminPages),
+        id: existingRow.id,
+        metaPixelEnabled: Boolean(existingRow.metaPixelEnabled),
+        metaPixelId: existingRow.metaPixelId ?? DEFAULT_TRACKING_CONFIG.metaPixelId,
+        metaCustomScript: existingRow.metaCustomScript ?? null,
+        gtmEnabled: Boolean(existingRow.gtmEnabled),
+        gtmId: existingRow.gtmId ?? DEFAULT_TRACKING_CONFIG.gtmId,
+        gtmCustomScript: existingRow.gtmCustomScript ?? null,
+        customHeadCode: existingRow.customHeadCode ?? null,
+        customBodyCode: existingRow.customBodyCode ?? null,
+        trackAdminPages: Boolean(existingRow.trackAdminPages),
       };
       lastTrackingFetch = now;
       return cachedTrackingConfig;
     }
 
-    // Auto-seed default configuration
-    const created = await prisma.trackingConfig.create({
-      data: {
-        id: "default",
-        metaPixelEnabled: DEFAULT_TRACKING_CONFIG.metaPixelEnabled,
-        metaPixelId: DEFAULT_TRACKING_CONFIG.metaPixelId,
-        metaCustomScript: null,
-        gtmEnabled: DEFAULT_TRACKING_CONFIG.gtmEnabled,
-        gtmId: DEFAULT_TRACKING_CONFIG.gtmId,
-        gtmCustomScript: null,
-        customHeadCode: null,
-        customBodyCode: null,
-        trackAdminPages: DEFAULT_TRACKING_CONFIG.trackAdminPages,
-      },
-    });
-
-    cachedTrackingConfig = {
-      id: created.id,
-      metaPixelEnabled: Boolean(created.metaPixelEnabled),
-      metaPixelId: created.metaPixelId ?? DEFAULT_TRACKING_CONFIG.metaPixelId,
-      metaCustomScript: created.metaCustomScript ?? null,
-      gtmEnabled: Boolean(created.gtmEnabled),
-      gtmId: created.gtmId ?? DEFAULT_TRACKING_CONFIG.gtmId,
-      gtmCustomScript: created.gtmCustomScript ?? null,
-      customHeadCode: created.customHeadCode ?? null,
-      customBodyCode: created.customBodyCode ?? null,
-      trackAdminPages: Boolean(created.trackAdminPages),
-    };
+    // Default configuration fallback
+    cachedTrackingConfig = DEFAULT_TRACKING_CONFIG;
     lastTrackingFetch = now;
     return cachedTrackingConfig;
   } catch (err) {

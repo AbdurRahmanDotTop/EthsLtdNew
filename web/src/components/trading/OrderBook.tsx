@@ -40,7 +40,7 @@ export default function OrderBook({ symbol, currentPrice, precision }: OrderBook
           `https://api.binance.com/api/v3/depth?symbol=${upperSymbol}&limit=6`
         );
         if (!res.ok) return;
-        const data = await res.json();
+        const data = (await res.json()) as any;
         if (data.asks && data.bids && !isDisposed) {
           setAsks(
             data.asks.slice(0, 5).reverse().map((a: string[]) => ({
