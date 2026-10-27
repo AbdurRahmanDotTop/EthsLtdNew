@@ -1,22 +1,37 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { getP2pOrders } from "@/actions/p2p";
+import { useAuth } from "@/hooks/use-auth";
 import { ArrowLeft, Loader2, Clock, CheckCircle2, AlertCircle, ChevronRight, ArrowUpDown } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 
 export default function P2POrdersPage() {
+  const router = useRouter();
+  const { isAuthenticated, isLoading: isAuthLoading } = useAuth();
   const [orders, setOrders] = useState<any[]>([]);
   const [filter, setFilter] = useState("ALL");
   const [isLoading, setIsLoading] = useState(true);
 
+  // Immediate authentication guard
+  useEffect(() => {
+    if (!isAuthenticated && !isAuthLoading) {
+      router.replace(`/login?redirect=${encodeURIComponent("/p2p/orders")}`);
+    }
+  }, [isAuthenticated, isAuthLoading, router]);
+
   const fetchOrders = async () => {
+    if (!isAuthenticated && !isAuthLoading) return;
     setIsLoading(true);
     try {
       const res = await getP2pOrders({ status: filter === "ALL" ? undefined : filter });
       if (res.success && res.data) {
         setOrders(res.data);
+      } else if (res.error?.includes("Unauthorized") || res.error?.includes("Log in")) {
+        router.replace(`/login?redirect=${encodeURIComponent("/p2p/orders")}`);
+        return;
       }
     } catch (e) {
       console.error(e);
@@ -26,8 +41,10 @@ export default function P2POrdersPage() {
   };
 
   useEffect(() => {
-    fetchOrders();
-  }, [filter]);
+    if (isAuthenticated) {
+      fetchOrders();
+    }
+  }, [filter, isAuthenticated]);
 
   const tabs = [
     { label: "All Orders", val: "ALL" },

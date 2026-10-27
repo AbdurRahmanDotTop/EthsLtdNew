@@ -1,19 +1,32 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { getP2pAds } from "@/actions/p2p";
 import { P2PAdvertisement, P2PMerchant } from "@/lib/p2p/types";
 import { useP2PStore } from "@/stores/p2p-store";
 import { useCurrencies } from "@/hooks/use-currencies";
+import { useAuth } from "@/hooks/use-auth";
 import { Loader2, CheckCircle2, ShieldCheck, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export function P2PTable({ onSelectAd }: { onSelectAd: (ad: P2PAdvertisement, merchant: P2PMerchant) => void }) {
+  const router = useRouter();
+  const { isAuthenticated, isLoading: isAuthLoading } = useAuth();
   const { fiats } = useCurrencies();
   const { query, resetQuery } = useP2PStore();
 
   const [ads, setAds] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+
+  const handleTradeAction = (ad: any, merchantObj: P2PMerchant) => {
+    if (!isAuthenticated && !isAuthLoading) {
+      const targetUrl = `/p2p?action=trade&adId=${ad.id}`;
+      router.push(`/login?redirect=${encodeURIComponent(targetUrl)}`);
+      return;
+    }
+    onSelectAd(ad, merchantObj);
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -168,8 +181,8 @@ export function P2PTable({ onSelectAd }: { onSelectAd: (ad: P2PAdvertisement, me
                     <Button 
                       variant={isBuyMode ? "default" : "destructive"} 
                       size="sm"
-                      onClick={() => onSelectAd(ad, merchantObj)}
-                      className={`font-bold px-5 h-9 text-xs rounded-xl shadow-md shrink-0 ${
+                      onClick={() => handleTradeAction(ad, merchantObj)}
+                      className={`font-bold px-5 h-9 text-xs rounded-xl shadow-md shrink-0 cursor-pointer ${
                         isBuyMode ? "bg-[#00A070] hover:bg-[#00B07C]" : "bg-red-600 hover:bg-red-700"
                       }`}
                     >
@@ -304,8 +317,8 @@ export function P2PTable({ onSelectAd }: { onSelectAd: (ad: P2PAdvertisement, me
                         <Button 
                           variant={isBuyMode ? "default" : "destructive"} 
                           size="sm"
-                          onClick={() => onSelectAd(ad, merchantObj)}
-                          className={`font-semibold px-5 h-9 text-xs rounded-xl shadow-md ${
+                          onClick={() => handleTradeAction(ad, merchantObj)}
+                          className={`font-semibold px-5 h-9 text-xs rounded-xl shadow-md cursor-pointer ${
                             isBuyMode ? "bg-[#00A070] hover:bg-[#00B07C]" : "bg-red-600 hover:bg-red-700"
                           }`}
                         >

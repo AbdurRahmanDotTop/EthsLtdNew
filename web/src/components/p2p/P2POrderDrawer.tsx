@@ -11,7 +11,7 @@ import { X, CheckCircle2, ShieldCheck, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { LoginPromptModal } from "@/components/ui/LoginPromptModal";
+import { useAuth } from "@/hooks/use-auth";
 
 interface P2POrderDrawerProps {
   ad: P2PAdvertisement | null;
@@ -21,6 +21,7 @@ interface P2POrderDrawerProps {
 
 export function P2POrderDrawer({ ad, merchant, onClose }: P2POrderDrawerProps) {
   const router = useRouter();
+  const { isAuthenticated, isLoading: isAuthLoading } = useAuth();
   const { fiats } = useCurrencies();
   const { query } = useP2PStore();
 
@@ -28,7 +29,15 @@ export function P2POrderDrawer({ ad, merchant, onClose }: P2POrderDrawerProps) {
   const [cryptoAmount, setCryptoAmount] = useState<string>("");
   const [paymentMethod, setPaymentMethod] = useState<string>("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showLoginModal, setShowLoginModal] = useState(false);
+
+  // If user is not authenticated, redirect to login preserving trade intent
+  useEffect(() => {
+    if (!isAuthenticated && !isAuthLoading && ad) {
+      toast.error("Please log in to initiate a P2P trade.");
+      onClose();
+      router.push(`/login?redirect=${encodeURIComponent(`/p2p?action=trade&adId=${ad.id}`)}`);
+    }
+  }, [isAuthenticated, isAuthLoading, ad, onClose, router]);
 
   // Initialize payment methods
   useEffect(() => {
@@ -96,6 +105,13 @@ export function P2POrderDrawer({ ad, merchant, onClose }: P2POrderDrawerProps) {
       return;
     }
 
+    if (!isAuthenticated) {
+      toast.error("Please log in to initiate a P2P trade.");
+      onClose();
+      router.push(`/login?redirect=${encodeURIComponent(`/p2p?action=trade&adId=${ad.id}`)}`);
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const res = await createP2pOrder({
@@ -111,7 +127,9 @@ export function P2POrderDrawer({ ad, merchant, onClose }: P2POrderDrawerProps) {
         router.push(`/p2p/order/${res.data.id}`);
       } else {
         if (res.error?.includes("Unauthorized") || res.error?.includes("Log in")) {
-          setShowLoginModal(true);
+          toast.error("Please log in to initiate a P2P trade.");
+          onClose();
+          router.push(`/login?redirect=${encodeURIComponent(`/p2p?action=trade&adId=${ad.id}`)}`);
         } else {
           toast.error(res.error || "Failed to create order");
         }
@@ -343,13 +361,7 @@ export function P2POrderDrawer({ ad, merchant, onClose }: P2POrderDrawerProps) {
         </form>
       </div>
 
-      <LoginPromptModal
-        isOpen={showLoginModal}
-        onClose={() => setShowLoginModal(false)}
-        title="Please Log In to Trade"
-        description="You must be logged in to your account to initiate P2P orders and interact with escrow."
-        returnUrl="/p2p"
-      />
+
     </>
   );
 }

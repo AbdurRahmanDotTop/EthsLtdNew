@@ -1,24 +1,39 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { getMyP2pAds, updateP2pAdStatus, deleteP2pAd } from "@/actions/p2p";
+import { useAuth } from "@/hooks/use-auth";
 import { PlusCircle, Loader2, PauseCircle, PlayCircle, XCircle, ArrowLeft, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { toast } from "sonner";
 
 export default function MyAdsPage() {
+  const router = useRouter();
+  const { isAuthenticated, isLoading: isAuthLoading } = useAuth();
   const [ads, setAds] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
+  // Immediate authentication guard
+  useEffect(() => {
+    if (!isAuthenticated && !isAuthLoading) {
+      router.replace(`/login?redirect=${encodeURIComponent("/p2p/my-ads")}`);
+    }
+  }, [isAuthenticated, isAuthLoading, router]);
+
   const fetchMyAds = async () => {
+    if (!isAuthenticated && !isAuthLoading) return;
     setIsLoading(true);
     try {
       const res = await getMyP2pAds();
       if (res.success && res.data) {
         setAds(res.data);
+      } else if (res.error?.includes("Unauthorized") || res.error?.includes("Log in")) {
+        router.replace(`/login?redirect=${encodeURIComponent("/p2p/my-ads")}`);
+        return;
       }
     } catch (e) {
       console.error(e);
@@ -28,8 +43,10 @@ export default function MyAdsPage() {
   };
 
   useEffect(() => {
-    fetchMyAds();
-  }, []);
+    if (isAuthenticated) {
+      fetchMyAds();
+    }
+  }, [isAuthenticated]);
 
   const handleStatusChange = async (adId: string, status: "ONLINE" | "OFFLINE" | "PAUSED" | "CLOSED") => {
     setUpdatingId(adId);

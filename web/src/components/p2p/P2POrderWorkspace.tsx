@@ -62,6 +62,15 @@ export function P2POrderWorkspace({ orderId }: P2POrderWorkspaceProps) {
       const res = await getP2pOrder(orderId);
       if (res.success && res.data) {
         setOrder(res.data);
+      } else {
+        if (res.error?.includes("Unauthorized") || res.error?.includes("Log in")) {
+          router.replace(`/login?redirect=${encodeURIComponent(`/p2p/order/${orderId}`)}`);
+          return;
+        } else if (res.error?.includes("Forbidden")) {
+          toast.error("Access denied. You do not have permission to view this order.");
+          router.replace("/p2p/orders");
+          return;
+        }
       }
     } catch (e) {
       console.error("Failed to fetch order", e);
@@ -155,6 +164,10 @@ export function P2POrderWorkspace({ orderId }: P2POrderWorkspaceProps) {
         toast.success("Payment marked as sent!");
         fetchOrder();
       } else {
+        if (res.error?.includes("Unauthorized") || res.error?.includes("Log in")) {
+          router.push(`/login?redirect=${encodeURIComponent(`/p2p/order/${order.id}`)}`);
+          return;
+        }
         toast.error(res.error || "Failed to mark paid");
       }
     } catch (e: any) {
@@ -180,6 +193,10 @@ export function P2POrderWorkspace({ orderId }: P2POrderWorkspaceProps) {
         toast.success("Crypto released to buyer!");
         fetchOrder();
       } else {
+        if (res.error?.includes("Unauthorized") || res.error?.includes("Log in")) {
+          router.push(`/login?redirect=${encodeURIComponent(`/p2p/order/${order.id}`)}`);
+          return;
+        }
         toast.error(res.error || "Failed to release crypto");
       }
     } catch (e: any) {
@@ -201,6 +218,10 @@ export function P2POrderWorkspace({ orderId }: P2POrderWorkspaceProps) {
         toast.success("Order cancelled");
         fetchOrder();
       } else {
+        if (res.error?.includes("Unauthorized") || res.error?.includes("Log in")) {
+          router.push(`/login?redirect=${encodeURIComponent(`/p2p/order/${order.id}`)}`);
+          return;
+        }
         toast.error(res.error || "Failed to cancel");
       }
     } catch (e: any) {
@@ -227,6 +248,10 @@ export function P2POrderWorkspace({ orderId }: P2POrderWorkspaceProps) {
         setShowDisputeModal(false);
         fetchOrder();
       } else {
+        if (res.error?.includes("Unauthorized") || res.error?.includes("Log in")) {
+          router.push(`/login?redirect=${encodeURIComponent(`/p2p/order/${order.id}`)}`);
+          return;
+        }
         toast.error(res.error || "Failed to raise dispute");
       }
     } catch (e: any) {

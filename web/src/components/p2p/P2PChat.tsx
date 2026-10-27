@@ -73,6 +73,9 @@ export function P2PChat({ order, currentUserId }: P2PChatProps) {
       const res = await sendP2pMessage(order.id, messageText);
       if (!res.success) {
         setMessages((prev) => prev.filter((m) => m.id !== tempId));
+        if (res.error?.includes("Unauthorized") || res.error?.includes("Log in")) {
+          window.location.href = `/login?redirect=${encodeURIComponent(`/p2p/order/${order.id}`)}`;
+        }
       } else {
         loadMessages();
       }

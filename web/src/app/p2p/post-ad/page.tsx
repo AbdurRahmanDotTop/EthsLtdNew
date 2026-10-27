@@ -10,6 +10,7 @@ import {
   getP2pPaymentMethods,
 } from "@/actions/p2p";
 import { useCurrencies } from "@/hooks/use-currencies";
+import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -43,12 +44,21 @@ function PostAdContent() {
   const editId = searchParams.get("id");
   const isEditMode = Boolean(editId);
 
+  const { isAuthenticated, isLoading: isAuthLoading } = useAuth();
   const { assets, fiats } = useCurrencies();
 
   const [isLoadingAd, setIsLoadingAd] = useState(isEditMode);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [supportedMethods, setSupportedMethods] = useState<any[]>([]);
   const [userSavedMethods, setUserSavedMethods] = useState<any[]>([]);
+
+  // Immediate authentication guard
+  useEffect(() => {
+    if (!isAuthenticated && !isAuthLoading) {
+      const fullUrl = editId ? `/p2p/post-ad?id=${editId}` : "/p2p/post-ad";
+      router.replace(`/login?redirect=${encodeURIComponent(fullUrl)}`);
+    }
+  }, [isAuthenticated, isAuthLoading, router, editId]);
 
   // Form State
   const [side, setSide] = useState<"BUY" | "SELL">("SELL");
@@ -298,7 +308,12 @@ function PostAdContent() {
           toast.success("Advertisement updated successfully!");
           router.push("/p2p/my-ads");
         } else {
-          toast.error(res.error || "Failed to update ad");
+          if (res.error?.includes("Unauthorized") || res.error?.includes("Log in")) {
+            const fullUrl = editId ? `/p2p/post-ad?id=${editId}` : "/p2p/post-ad";
+            router.push(`/login?redirect=${encodeURIComponent(fullUrl)}`);
+          } else {
+            toast.error(res.error || "Failed to update ad");
+          }
         }
       } else {
         const res = await createP2pAd({
@@ -321,7 +336,12 @@ function PostAdContent() {
           toast.success("Advertisement posted successfully!");
           router.push("/p2p/my-ads");
         } else {
-          toast.error(res.error || "Failed to create ad");
+          if (res.error?.includes("Unauthorized") || res.error?.includes("Log in")) {
+            const fullUrl = editId ? `/p2p/post-ad?id=${editId}` : "/p2p/post-ad";
+            router.push(`/login?redirect=${encodeURIComponent(fullUrl)}`);
+          } else {
+            toast.error(res.error || "Failed to create ad");
+          }
         }
       }
     } catch (err: any) {

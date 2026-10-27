@@ -1,15 +1,26 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { History, Zap, ShieldCheck, PlusCircle } from "lucide-react";
+import { History, Zap, ShieldCheck } from "lucide-react";
 import { useP2PStore } from "@/stores/p2p-store";
-import Link from "next/link";
+import { useAuth } from "@/hooks/use-auth";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ExpressP2PModal } from "./ExpressP2PModal";
 
 export function P2PHero() {
   const { query, setQuery } = useP2PStore();
+  const { isAuthenticated, isLoading } = useAuth();
+  const router = useRouter();
   const [expressOpen, setExpressOpen] = useState(false);
+
+  const handleOrdersClick = () => {
+    if (!isAuthenticated && !isLoading) {
+      router.push(`/login?redirect=${encodeURIComponent("/p2p/orders")}`);
+    } else {
+      router.push("/p2p/orders");
+    }
+  };
 
   return (
     <div className="bg-[#161822] border-b border-white/10 relative overflow-hidden">
@@ -32,7 +43,7 @@ export function P2PHero() {
               size="lg" 
               variant={query.side.toLowerCase() === "buy" ? "default" : "outline"}
               onClick={() => setQuery({ side: "buy" })}
-              className="text-sm font-semibold h-11 px-6"
+              className="text-sm font-semibold h-11 px-6 cursor-pointer"
             >
               Buy Crypto
             </Button>
@@ -40,14 +51,14 @@ export function P2PHero() {
               size="lg" 
               variant={query.side.toLowerCase() === "sell" ? "default" : "outline"}
               onClick={() => setQuery({ side: "sell" })}
-              className="text-sm font-semibold h-11 px-6"
+              className="text-sm font-semibold h-11 px-6 cursor-pointer"
             >
               Sell Crypto
             </Button>
             <Button 
               variant="secondary" 
               size="lg" 
-              className="gap-2 bg-yellow-500/15 text-yellow-400 hover:bg-yellow-500/25 border border-yellow-500/30 text-sm font-semibold h-11 px-5" 
+              className="gap-2 bg-yellow-500/15 text-yellow-400 hover:bg-yellow-500/25 border border-yellow-500/30 text-sm font-semibold h-11 px-5 cursor-pointer" 
               onClick={() => setExpressOpen(true)}
             >
               <Zap className="w-4 h-4 fill-current" /> Express P2P
@@ -55,12 +66,10 @@ export function P2PHero() {
             <Button 
               variant="outline" 
               size="lg" 
-              asChild 
-              className="gap-2 text-gray-300 hover:text-white border-white/10 text-sm h-11 px-5"
+              onClick={handleOrdersClick}
+              className="gap-2 text-gray-300 hover:text-white border-white/10 text-sm h-11 px-5 cursor-pointer"
             >
-              <Link href="/p2p/orders">
-                <History className="w-4 h-4" /> My Orders
-              </Link>
+              <History className="w-4 h-4" /> My Orders
             </Button>
           </div>
         </div>

@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { getP2pProfile, transferFundingWallet } from "@/actions/p2p";
+import { useAuth } from "@/hooks/use-auth";
 import {
   User,
   ShieldCheck,
@@ -22,6 +24,8 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 
 export default function P2PProfilePage() {
+  const router = useRouter();
+  const { isAuthenticated, isLoading: isAuthLoading } = useAuth();
   const [profile, setProfile] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [showTransferModal, setShowTransferModal] = useState(false);
@@ -30,12 +34,23 @@ export default function P2PProfilePage() {
   const [transferDir, setTransferDir] = useState<"TO_FUNDING" | "FROM_FUNDING">("TO_FUNDING");
   const [isTransferring, setIsTransferring] = useState(false);
 
+  // Immediate authentication guard
+  useEffect(() => {
+    if (!isAuthenticated && !isAuthLoading) {
+      router.replace(`/login?redirect=${encodeURIComponent("/p2p/profile")}`);
+    }
+  }, [isAuthenticated, isAuthLoading, router]);
+
   const fetchProfile = async () => {
+    if (!isAuthenticated && !isAuthLoading) return;
     setIsLoading(true);
     try {
       const res = await getP2pProfile();
       if (res.success && res.data) {
         setProfile(res.data);
+      } else if (res.error?.includes("Unauthorized") || res.error?.includes("Log in")) {
+        router.replace(`/login?redirect=${encodeURIComponent("/p2p/profile")}`);
+        return;
       }
     } catch (e) {
       console.error(e);
@@ -45,8 +60,10 @@ export default function P2PProfilePage() {
   };
 
   useEffect(() => {
-    fetchProfile();
-  }, []);
+    if (isAuthenticated) {
+      fetchProfile();
+    }
+  }, [isAuthenticated]);
 
   const handleTransferSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -69,7 +86,11 @@ export default function P2PProfilePage() {
         setShowTransferModal(false);
         setTransferAmount("");
       } else {
-        toast.error(res.error || "Transfer failed");
+        if (res.error?.includes("Unauthorized") || res.error?.includes("Log in")) {
+          router.push(`/login?redirect=${encodeURIComponent("/p2p/profile")}`);
+        } else {
+          toast.error(res.error || "Transfer failed");
+        }
       }
     } catch (err: any) {
       toast.error(err.message || "Transfer failed");

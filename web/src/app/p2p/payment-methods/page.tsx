@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/hooks/use-auth";
 import {
   getP2pPaymentMethods,
   addP2pPaymentMethod,
@@ -34,6 +36,8 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 
 export default function PaymentMethodsPage() {
+  const router = useRouter();
+  const { isAuthenticated, isLoading: isAuthLoading } = useAuth();
   const [methods, setMethods] = useState<any[]>([]);
   const [supportedMethods, setSupportedMethods] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -45,7 +49,15 @@ export default function PaymentMethodsPage() {
   const [selectedMethodName, setSelectedMethodName] = useState("");
   const [formDetails, setFormDetails] = useState<Record<string, any>>({});
 
+  // Immediate authentication guard
+  useEffect(() => {
+    if (!isAuthenticated && !isAuthLoading) {
+      router.replace(`/login?redirect=${encodeURIComponent("/p2p/payment-methods")}`);
+    }
+  }, [isAuthenticated, isAuthLoading, router]);
+
   const fetchMethods = async () => {
+    if (!isAuthenticated && !isAuthLoading) return;
     setIsLoading(true);
     try {
       const [res, sysRes] = await Promise.all([
@@ -54,6 +66,9 @@ export default function PaymentMethodsPage() {
       ]);
       if (res.success && res.data) {
         setMethods(res.data);
+      } else if (res.error?.includes("Unauthorized") || res.error?.includes("Log in")) {
+        router.replace(`/login?redirect=${encodeURIComponent("/p2p/payment-methods")}`);
+        return;
       }
       if (sysRes.success && sysRes.data) {
         setSupportedMethods(sysRes.data);
@@ -69,8 +84,10 @@ export default function PaymentMethodsPage() {
   };
 
   useEffect(() => {
-    fetchMethods();
-  }, []);
+    if (isAuthenticated) {
+      fetchMethods();
+    }
+  }, [isAuthenticated]);
 
   const currentMethodConfig = supportedMethods.find(
     (m) => m.name === selectedMethodName || m.identifier === selectedMethodName
@@ -159,7 +176,11 @@ export default function PaymentMethodsPage() {
           setShowModal(false);
           fetchMethods();
         } else {
-          toast.error(res.error || "Failed to update payment method");
+          if (res.error?.includes("Unauthorized") || res.error?.includes("Log in")) {
+            router.push(`/login?redirect=${encodeURIComponent("/p2p/payment-methods")}`);
+          } else {
+            toast.error(res.error || "Failed to update payment method");
+          }
         }
       } else {
         const res = await addP2pPaymentMethod({
@@ -173,7 +194,11 @@ export default function PaymentMethodsPage() {
           setShowModal(false);
           fetchMethods();
         } else {
-          toast.error(res.error || "Failed to add payment method");
+          if (res.error?.includes("Unauthorized") || res.error?.includes("Log in")) {
+            router.push(`/login?redirect=${encodeURIComponent("/p2p/payment-methods")}`);
+          } else {
+            toast.error(res.error || "Failed to add payment method");
+          }
         }
       }
     } catch (err: any) {

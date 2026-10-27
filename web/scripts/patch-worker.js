@@ -59,6 +59,12 @@ function getCacheRules(request, url) {
         p.startsWith("/contracts") ||
         p.startsWith("/rm/chat") ||
         p.startsWith("/rm/dashboard") ||
+        p.startsWith("/p2p/orders") ||
+        p.startsWith("/p2p/my-ads") ||
+        p.startsWith("/p2p/payment-methods") ||
+        p.startsWith("/p2p/profile") ||
+        p.startsWith("/p2p/post-ad") ||
+        p.startsWith("/p2p/order") ||
         p.startsWith("/api/v1/wallets") ||
         p.startsWith("/api/v1/trading") ||
         p.startsWith("/api/v1/p2p") ||

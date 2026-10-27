@@ -66,19 +66,26 @@ export async function proxy(request: NextRequest) {
     }
   }
 
-  // 3. Protected user account and contract/chat routes
+  // 3. Protected user account, contract/chat, and P2P private routes
   const isProtectedUserRoute =
     pathname.startsWith("/assets") ||
     pathname.startsWith("/profile") ||
     pathname.startsWith("/security") ||
     pathname.startsWith("/account") ||
     pathname.startsWith("/contracts") ||
-    pathname.startsWith("/rm/chat");
+    pathname.startsWith("/rm/chat") ||
+    pathname.startsWith("/p2p/orders") ||
+    pathname.startsWith("/p2p/my-ads") ||
+    pathname.startsWith("/p2p/payment-methods") ||
+    pathname.startsWith("/p2p/profile") ||
+    pathname.startsWith("/p2p/post-ad") ||
+    pathname.startsWith("/p2p/order");
 
   if (isProtectedUserRoute) {
     if (!session) {
       const url = new URL("/login", request.nextUrl.origin);
-      url.searchParams.set("redirect", pathname);
+      const fullTarget = pathname + (request.nextUrl.search || "");
+      url.searchParams.set("redirect", fullTarget);
       return NextResponse.redirect(url);
     }
   }
@@ -108,6 +115,7 @@ export const config = {
     "/account/:path*",
     "/contracts/:path*",
     "/rm/:path*",
+    "/p2p/:path*",
   ],
 };
 
