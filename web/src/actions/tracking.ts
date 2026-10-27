@@ -35,13 +35,13 @@ function safeRevalidate(path: string) {
   }
 }
 
-// High-performance edge in-memory cache to prevent D1 hits on every SSR page load
-let cachedTrackingConfig: TrackingConfigData | null = null;
-let lastTrackingFetch = 0;
-const TRACKING_CACHE_TTL = 60000; // 60 seconds
+// High-performance edge in-memory cache pre-warmed to guarantee zero cold-start delay
+let cachedTrackingConfig: TrackingConfigData = { ...DEFAULT_TRACKING_CONFIG };
+let lastTrackingFetch = Date.now();
+const TRACKING_CACHE_TTL = 300000; // 5 minutes
 
 export async function invalidateTrackingCache() {
-  cachedTrackingConfig = null;
+  cachedTrackingConfig = { ...DEFAULT_TRACKING_CONFIG };
   lastTrackingFetch = 0;
 }
 
@@ -51,29 +51,22 @@ export async function invalidateTrackingCache() {
  */
 export async function getTrackingConfig(): Promise<TrackingConfigData> {
   const now = Date.now();
-  if (cachedTrackingConfig && now - lastTrackingFetch < TRACKING_CACHE_TTL) {
+  if (now - lastTrackingFetch < TRACKING_CACHE_TTL) {
     return cachedTrackingConfig;
   }
 
   try {
-    // 1. Zero-WASM Fast Path for Cloudflare Workers: Query D1 directly via C++ binding
+    // Zero-WASM Fast Path for Cloudflare Workers: Query D1 directly via C++ binding
     let existingRow: any = null;
     try {
       const { getCloudflareContext } = await import("@opennextjs/cloudflare");
       const cf: any = getCloudflareContext({ async: false });
-      const db = cf?.env?.DB || (globalThis as any).DB;
+      const db = cf?.env?.DB || (globalThis as any).DB || (globalThis as any)[Symbol.for("__cloudflare-context__")]?.env?.DB;
       if (db && typeof db.prepare === "function") {
         existingRow = await db.prepare("SELECT * FROM TrackingConfig WHERE id = 'default'").first();
       }
     } catch {
-      // Non-Cloudflare or fallback below
-    }
-
-    // 2. Fallback to Prisma if direct D1 binding was not used
-    if (!existingRow) {
-      existingRow = await prisma.trackingConfig.findUnique({
-        where: { id: "default" },
-      });
+      // Non-Cloudflare or direct fallback
     }
 
     if (existingRow) {
@@ -93,13 +86,10 @@ export async function getTrackingConfig(): Promise<TrackingConfigData> {
       return cachedTrackingConfig;
     }
 
-    // Default configuration fallback
-    cachedTrackingConfig = DEFAULT_TRACKING_CONFIG;
     lastTrackingFetch = now;
     return cachedTrackingConfig;
-  } catch (err) {
-    console.warn("getTrackingConfig fallback to defaults:", err);
-    return DEFAULT_TRACKING_CONFIG;
+  } catch {
+    return cachedTrackingConfig;
   }
 }
 
