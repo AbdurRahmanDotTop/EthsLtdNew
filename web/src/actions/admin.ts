@@ -3362,6 +3362,14 @@ export async function getUserDetailsAdmin(userId: string): Promise<{ success: bo
         kyc: true,
         bankCards: true,
         cryptoWallets: true,
+        orders: { take: 15, orderBy: { createdAt: "desc" } },
+        transactions: { take: 15, orderBy: { createdAt: "desc" } },
+        deposits: { take: 10, orderBy: { createdAt: "desc" } },
+        withdrawals: { take: 10, orderBy: { createdAt: "desc" } },
+        p2pAds: { take: 10, orderBy: { createdAt: "desc" } },
+        p2pOrdersAsBuyer: { take: 5, orderBy: { createdAt: "desc" } },
+        p2pOrdersAsSeller: { take: 5, orderBy: { createdAt: "desc" } },
+        p2pPaymentMethods: true,
         rmClientConnections: {
           include: {
             rm: {
@@ -3405,10 +3413,32 @@ export async function getUserDetailsAdmin(userId: string): Promise<{ success: bo
 
 export interface UpdateUserProfileAdminInput {
   name?: string;
+  email?: string;
   phone?: string;
+  avatarUrl?: string;
   status?: UserStatus;
   role?: UserRole;
   isKycVerified?: boolean;
+  isEmailVerified?: boolean;
+  isMerchant?: boolean;
+  merchantTier?: string;
+  newPassword?: string;
+  transactionPin?: string;
+  kycDetails?: {
+    documentType?: string;
+    idNumber?: string;
+    fullName?: string;
+    dateOfBirth?: string;
+    gender?: string;
+    nationality?: string;
+    country?: string;
+    city?: string;
+    state?: string;
+    postalCode?: string;
+    address?: string;
+    status?: string;
+    rejectionReason?: string;
+  };
 }
 
 export async function updateUserProfileAdmin(
@@ -3429,16 +3459,130 @@ export async function updateUserProfileAdmin(
     }
 
     const updatePayload: any = {};
-    if (data.name !== undefined) updatePayload.name = data.name.trim();
-    if (data.phone !== undefined) updatePayload.phone = data.phone?.trim() || null;
-    if (data.status) updatePayload.status = data.status;
-    if (data.role) updatePayload.role = data.role;
-    if (data.isKycVerified !== undefined) updatePayload.isKycVerified = Boolean(data.isKycVerified);
+    const auditDetails: Record<string, any> = {};
 
+    // 1. Basic Details
+    if (data.name !== undefined) {
+      updatePayload.name = data.name.trim();
+      auditDetails.name = data.name.trim();
+    }
+    if (data.phone !== undefined) {
+      updatePayload.phone = data.phone?.trim() || null;
+      auditDetails.phone = updatePayload.phone;
+    }
+    if (data.avatarUrl !== undefined) {
+      updatePayload.avatarUrl = data.avatarUrl?.trim() || null;
+    }
+
+    // 2. Email Address Change (with uniqueness check)
+    if (data.email && data.email.trim().toLowerCase() !== existingUser.email.toLowerCase()) {
+      const newEmail = data.email.trim().toLowerCase();
+      if (!newEmail.includes("@")) {
+        return { success: false, error: "Please enter a valid email address." };
+      }
+      const emailInUse = await prisma.user.findUnique({ where: { email: newEmail } });
+      if (emailInUse && emailInUse.id !== userId) {
+        return { success: false, error: "This email address is already in use by another account." };
+      }
+      updatePayload.email = newEmail;
+      auditDetails.email = `Changed from ${existingUser.email} to ${newEmail}`;
+    }
+
+    // 3. Status and Roles
+    if (data.status) {
+      updatePayload.status = data.status;
+      auditDetails.status = data.status;
+    }
+    if (data.role) {
+      updatePayload.role = data.role;
+      auditDetails.role = data.role;
+    }
+
+    // 4. Verification Flags
+    if (data.isKycVerified !== undefined) {
+      updatePayload.isKycVerified = Boolean(data.isKycVerified);
+      auditDetails.isKycVerified = Boolean(data.isKycVerified);
+    }
+    if (data.isEmailVerified !== undefined) {
+      updatePayload.isEmailVerified = Boolean(data.isEmailVerified);
+      auditDetails.isEmailVerified = Boolean(data.isEmailVerified);
+    }
+
+    // 5. Merchant Status
+    if (data.isMerchant !== undefined) {
+      updatePayload.isMerchant = Boolean(data.isMerchant);
+      auditDetails.isMerchant = Boolean(data.isMerchant);
+    }
+    if (data.merchantTier) {
+      updatePayload.merchantTier = data.merchantTier;
+      auditDetails.merchantTier = data.merchantTier;
+    }
+
+    // 6. Secure Password Reset
+    if (data.newPassword && data.newPassword.trim().length > 0) {
+      if (data.newPassword.trim().length < 6) {
+        return { success: false, error: "Password must be at least 6 characters long." };
+      }
+      const hashedPassword = await hashPassword(data.newPassword.trim());
+      updatePayload.passwordHash = hashedPassword;
+      auditDetails.password = "Administrative Password Reset Executed";
+    }
+
+    // 7. Transaction PIN Update
+    if (data.transactionPin && data.transactionPin.trim().length > 0) {
+      updatePayload.transactionPin = data.transactionPin.trim();
+      auditDetails.transactionPin = "Administrative PIN Updated";
+    }
+
+    // Apply User table updates
     await prisma.user.update({
       where: { id: userId },
       data: updatePayload,
     });
+
+    // 8. KYC Application Details Update (if provided)
+    if (data.kycDetails) {
+      const kyc = data.kycDetails;
+      await prisma.kycApplication.upsert({
+        where: { userId },
+        create: {
+          userId,
+          documentType: kyc.documentType || "GOVERNMENT_ID",
+          idNumber: kyc.idNumber || "UNSPECIFIED",
+          fullName: kyc.fullName || updatePayload.name || existingUser.name || "",
+          dateOfBirth: kyc.dateOfBirth || null,
+          gender: kyc.gender || null,
+          nationality: kyc.nationality || null,
+          country: kyc.country || null,
+          city: kyc.city || null,
+          state: kyc.state || null,
+          postalCode: kyc.postalCode || null,
+          address: kyc.address || "",
+          status: kyc.status || (updatePayload.isKycVerified ? "APPROVED" : "PENDING"),
+          rejectionReason: kyc.rejectionReason || null,
+          reviewedBy: admin.email,
+          reviewedAt: new Date(),
+        },
+        update: {
+          ...(kyc.documentType && { documentType: kyc.documentType }),
+          ...(kyc.idNumber && { idNumber: kyc.idNumber }),
+          ...(kyc.fullName && { fullName: kyc.fullName }),
+          ...(kyc.dateOfBirth !== undefined && { dateOfBirth: kyc.dateOfBirth }),
+          ...(kyc.gender !== undefined && { gender: kyc.gender }),
+          ...(kyc.nationality !== undefined && { nationality: kyc.nationality }),
+          ...(kyc.country !== undefined && { country: kyc.country }),
+          ...(kyc.city !== undefined && { city: kyc.city }),
+          ...(kyc.state !== undefined && { state: kyc.state }),
+          ...(kyc.postalCode !== undefined && { postalCode: kyc.postalCode }),
+          ...(kyc.address !== undefined && { address: kyc.address }),
+          ...(kyc.status && { status: kyc.status }),
+          ...(kyc.rejectionReason !== undefined && { rejectionReason: kyc.rejectionReason }),
+          reviewedBy: admin.email,
+          reviewedAt: new Date(),
+        },
+      });
+      auditDetails.kycDetails = "KYC Application Information Updated";
+    }
 
     // If upgraded to RM, ensure profile exists
     if (data.role === "RM") {
@@ -3465,7 +3609,7 @@ export async function updateUserProfileAdmin(
         action: "UPDATE_USER_PROFILE",
         targetType: "USER",
         targetId: userId,
-        details: `Admin updated profile for ${existingUser.email} (UID: ${existingUser.uid}): ${JSON.stringify(updatePayload)}`,
+        details: `Admin updated profile for ${existingUser.email} (UID: ${existingUser.uid}): ${JSON.stringify(auditDetails)}`,
       },
     });
 
@@ -3805,6 +3949,319 @@ export async function deleteRmReviewAdmin(reviewId: string) {
     return { success: true, message: "Review deleted and statistics recalculated." };
   } catch (err: any) {
     return { success: false, error: err.message || "Failed to delete review." };
+  }
+}
+
+// ==========================================
+// 17. COMPLETE ADMIN USER CRUD & ACCOUNTS
+// ==========================================
+
+export interface AdminCreateUserInput {
+  name?: string;
+  email: string;
+  phone?: string;
+  password: string;
+  role?: UserRole;
+  status?: UserStatus;
+  isKycVerified?: boolean;
+  isEmailVerified?: boolean;
+  isMerchant?: boolean;
+  merchantTier?: string;
+  initialBalanceUsdt?: number;
+}
+
+export async function adminCreateUser(data: AdminCreateUserInput): Promise<{ success: boolean; message?: string; user?: any; error?: string }> {
+  try {
+    const admin = await verifyAdmin();
+
+    const cleanEmail = data.email?.trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes("@")) {
+      return { success: false, error: "A valid email address is required." };
+    }
+
+    if (!data.password || data.password.trim().length < 6) {
+      return { success: false, error: "Password must be at least 6 characters long." };
+    }
+
+    // Role changes require SUPER_ADMIN check
+    if (data.role && data.role !== "USER" && admin.role !== "SUPER_ADMIN") {
+      return { success: false, error: "Access denied. Only Super Admin can assign administrative or RM roles." };
+    }
+
+    const existingUser = await prisma.user.findUnique({ where: { email: cleanEmail } });
+    if (existingUser) {
+      return { success: false, error: "A user with this email address already exists." };
+    }
+
+    // Generate unique 6-digit UID
+    let uniqueUid = Math.floor(100000 + Math.random() * 900000);
+    let attempts = 0;
+    while (attempts < 10) {
+      const collision = await prisma.user.findUnique({ where: { uid: uniqueUid } });
+      if (!collision) break;
+      uniqueUid = Math.floor(100000 + Math.random() * 900000);
+      attempts++;
+    }
+
+    const hashedPassword = await hashPassword(data.password.trim());
+
+    const user = await prisma.user.create({
+      data: {
+        uid: uniqueUid,
+        email: cleanEmail,
+        name: data.name?.trim() || null,
+        phone: data.phone?.trim() || null,
+        passwordHash: hashedPassword,
+        transactionPin: "123456",
+        role: data.role || "USER",
+        status: data.status || "ACTIVE",
+        isKycVerified: Boolean(data.isKycVerified),
+        isEmailVerified: Boolean(data.isEmailVerified),
+        isMerchant: Boolean(data.isMerchant),
+        merchantTier: data.merchantTier || "STANDARD",
+      },
+    });
+
+    // Default Wallets creation
+    const standardAssets = ["USDT", "BTC", "ETH", "ACH", "USDC"];
+    const walletCreates = [];
+    for (const asset of standardAssets) {
+      walletCreates.push(
+        prisma.wallet.create({
+          data: {
+            userId: user.id,
+            asset,
+            type: "Currency",
+            balance: (asset === "USDT" && data.initialBalanceUsdt && data.initialBalanceUsdt > 0) ? Number(data.initialBalanceUsdt) : 0.0,
+          },
+        })
+      );
+    }
+    // Also create USDT wallets for Contract, Options, P2P
+    for (const type of ["Contract", "Options", "P2P"]) {
+      walletCreates.push(
+        prisma.wallet.create({
+          data: {
+            userId: user.id,
+            asset: "USDT",
+            type,
+            balance: 0.0,
+          },
+        })
+      );
+    }
+    await Promise.all(walletCreates);
+
+    if (data.initialBalanceUsdt && Number(data.initialBalanceUsdt) > 0) {
+      await prisma.transaction.create({
+        data: {
+          userId: user.id,
+          type: "Admin Adjustment (CREDIT)",
+          asset: "USDT",
+          amount: Number(data.initialBalanceUsdt),
+          status: "Passed",
+          description: `Initial balance credited by Admin (${admin.email}) upon account creation`,
+        },
+      });
+    }
+
+    // If role is RM, ensure RmProfile is created
+    if (data.role === "RM") {
+      await prisma.rmProfile.create({
+        data: {
+          userId: user.id,
+          rmCode: `RM-${user.uid}`,
+          designation: "Senior Crypto Wealth Relationship Manager",
+          department: "Private Wealth & Institutional Trading",
+          rating: 4.9,
+          totalRatings: 1,
+          experienceYears: 5,
+        },
+      });
+    }
+
+    await prisma.auditLog.create({
+      data: {
+        adminId: admin.id,
+        adminEmail: admin.email,
+        action: "ADMIN_CREATE_USER",
+        targetType: "USER",
+        targetId: user.id,
+        details: `Created new user ${user.email} (UID: ${user.uid}, Role: ${user.role}, Status: ${user.status}, Initial USDT: ${data.initialBalanceUsdt || 0})`,
+      },
+    });
+
+    safeRevalidate("/admin/users");
+    return { success: true, message: `User ${user.email} (UID: ${user.uid}) created successfully.`, user };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to create user." };
+  }
+}
+
+export async function adminAddBankCard(data: {
+  userId: string;
+  bankName: string;
+  accountHolder?: string;
+  accountNumber?: string;
+  iban?: string;
+  swiftCode?: string;
+  ifscCode?: string;
+  branchName?: string;
+  country?: string;
+  isPrimary?: boolean;
+}): Promise<{ success: boolean; message?: string; card?: any; error?: string }> {
+  try {
+    const admin = await verifyAdmin();
+
+    const user = await prisma.user.findUnique({ where: { id: data.userId } });
+    if (!user) return { success: false, error: "User not found." };
+
+    if (!data.bankName?.trim()) {
+      return { success: false, error: "Bank name is required." };
+    }
+
+    const card = await prisma.bankCard.create({
+      data: {
+        userId: data.userId,
+        bankName: data.bankName.trim(),
+        accountHolder: data.accountHolder?.trim() || user.name || "",
+        accountNumber: data.accountNumber?.trim() || "",
+        iban: data.iban?.trim() || null,
+        swiftCode: data.swiftCode?.trim() || null,
+        ifscCode: data.ifscCode?.trim() || null,
+        branchName: data.branchName?.trim() || null,
+        country: data.country?.trim() || "India",
+        fullName: data.accountHolder?.trim() || user.name || "",
+        isPrimary: Boolean(data.isPrimary),
+        status: "ACTIVE",
+      },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        adminId: admin.id,
+        adminEmail: admin.email,
+        action: "ADMIN_ADD_BANK_CARD",
+        targetType: "BANK_CARD",
+        targetId: card.id,
+        details: `Added bank card ${card.bankName} (${card.accountNumber || "N/A"}) for user ${user.email} (UID: ${user.uid})`,
+      },
+    });
+
+    safeRevalidate("/admin/users");
+    return { success: true, message: "Bank card added successfully.", card };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to add bank card." };
+  }
+}
+
+export async function adminDeleteBankCard(cardId: string): Promise<{ success: boolean; message?: string; error?: string }> {
+  try {
+    const admin = await verifyAdmin();
+
+    const card = await prisma.bankCard.findUnique({
+      where: { id: cardId },
+      include: { user: { select: { email: true, uid: true } } },
+    });
+    if (!card) return { success: false, error: "Bank card not found." };
+
+    await prisma.bankCard.delete({ where: { id: cardId } });
+
+    await prisma.auditLog.create({
+      data: {
+        adminId: admin.id,
+        adminEmail: admin.email,
+        action: "ADMIN_DELETE_BANK_CARD",
+        targetType: "BANK_CARD",
+        targetId: cardId,
+        details: `Deleted bank card ${card.bankName} (${card.accountNumber || "N/A"}) for user ${card.user?.email || card.userId}`,
+      },
+    });
+
+    safeRevalidate("/admin/users");
+    return { success: true, message: "Bank card removed successfully." };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to delete bank card." };
+  }
+}
+
+export async function adminAddCryptoWallet(data: {
+  userId: string;
+  asset: string;
+  network: string;
+  address: string;
+  label: string;
+  memo?: string;
+  isPrimary?: boolean;
+}): Promise<{ success: boolean; message?: string; wallet?: any; error?: string }> {
+  try {
+    const admin = await verifyAdmin();
+
+    const user = await prisma.user.findUnique({ where: { id: data.userId } });
+    if (!user) return { success: false, error: "User not found." };
+
+    if (!data.address?.trim()) {
+      return { success: false, error: "Wallet address is required." };
+    }
+
+    const wallet = await prisma.userCryptoWallet.create({
+      data: {
+        userId: data.userId,
+        asset: data.asset?.trim() || "USDT",
+        network: data.network?.trim() || "TRC20",
+        address: data.address.trim(),
+        label: data.label?.trim() || `${data.asset} Wallet`,
+        memo: data.memo?.trim() || null,
+        isPrimary: Boolean(data.isPrimary),
+        status: "ACTIVE",
+      },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        adminId: admin.id,
+        adminEmail: admin.email,
+        action: "ADMIN_ADD_CRYPTO_WALLET",
+        targetType: "CRYPTO_WALLET",
+        targetId: wallet.id,
+        details: `Added ${wallet.asset} (${wallet.network}) wallet address ${wallet.address} for user ${user.email} (UID: ${user.uid})`,
+      },
+    });
+
+    safeRevalidate("/admin/users");
+    return { success: true, message: "Crypto wallet added successfully.", wallet };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to add crypto wallet." };
+  }
+}
+
+export async function adminDeleteCryptoWallet(walletId: string): Promise<{ success: boolean; message?: string; error?: string }> {
+  try {
+    const admin = await verifyAdmin();
+
+    const wallet = await prisma.userCryptoWallet.findUnique({
+      where: { id: walletId },
+      include: { user: { select: { email: true, uid: true } } },
+    });
+    if (!wallet) return { success: false, error: "Crypto wallet not found." };
+
+    await prisma.userCryptoWallet.delete({ where: { id: walletId } });
+
+    await prisma.auditLog.create({
+      data: {
+        adminId: admin.id,
+        adminEmail: admin.email,
+        action: "ADMIN_DELETE_CRYPTO_WALLET",
+        targetType: "CRYPTO_WALLET",
+        targetId: walletId,
+        details: `Deleted ${wallet.asset} (${wallet.network}) wallet ${wallet.address} for user ${wallet.user?.email || wallet.userId}`,
+      },
+    });
+
+    safeRevalidate("/admin/users");
+    return { success: true, message: "Crypto wallet removed successfully." };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to delete crypto wallet." };
   }
 }
 
