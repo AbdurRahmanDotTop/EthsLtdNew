@@ -62,6 +62,14 @@ if (fs.existsSync(templateFile)) {
   if (!content.includes('cleanRscUrl')) {
     const hookMarker = `export default {`;
     const helperCode = `
+let _cachedHandlerPromise = null;
+function getHandler() {
+    if (!_cachedHandlerPromise) {
+        _cachedHandlerPromise = import("./server-functions/default/handler.mjs").then(m => m.handler);
+    }
+    return _cachedHandlerPromise;
+}
+
 function cleanRscUrl(rawUrl) {
     try {
         const u = new URL(rawUrl);
@@ -95,8 +103,30 @@ function cleanRscUrl(rawUrl) {
     // Intercept handler call and response
     const handlerMarker = `const { handler } = await import("./server-functions/default/handler.mjs");
             return handler(reqOrResp, env, ctx, request.signal);`;
-    const handlerReplacement = `const { handler } = await import("./server-functions/default/handler.mjs");
-            const finalResp = await handler(reqOrResp, env, ctx, request.signal);
+    const handlerReplacement = `let reqOrResp;
+            try {
+                reqOrResp = await middlewareHandler(request, env, ctx);
+                if (reqOrResp instanceof Response) {
+                    return reqOrResp;
+                }
+                if (reqOrResp && reqOrResp.internalEvent && reqOrResp.internalEvent.rawPath === "/500" && url.pathname !== "/500") {
+                    reqOrResp = request;
+                }
+            } catch {
+                reqOrResp = request;
+            }
+
+            const handler = await getHandler();
+            let finalResp;
+            try {
+                finalResp = await handler(reqOrResp || request, env, ctx, request.signal);
+            } catch {
+                try {
+                    finalResp = await handler(request, env, ctx, request.signal);
+                } catch {
+                    return new Response("Service Temporarily Unavailable", { status: 503 });
+                }
+            }
 
             if (finalResp && finalResp.status >= 300 && finalResp.status < 400) {
                 const location = finalResp.headers.get("Location");

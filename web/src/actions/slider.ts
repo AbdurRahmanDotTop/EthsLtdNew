@@ -83,23 +83,25 @@ const DEFAULT_SLIDES = [
   },
 ];
 
-// High-performance edge in-memory cache to prevent D1 hits on every homepage SSR load
-let cachedHeroSlides: any[] | null = null;
-let lastHeroSlidesFetch = 0;
-const HERO_SLIDES_CACHE_TTL = 60000; // 60 seconds
+// High-performance edge in-memory cache pre-warmed to guarantee zero cold-start overhead
+let cachedHeroSlides: any[] = [...DEFAULT_SLIDES];
+let lastHeroSlidesFetch = Date.now();
+const HERO_SLIDES_CACHE_TTL = 120000; // 2 minutes
+let isFetchingSlides = false;
 
 export async function invalidateHeroSlidesCache() {
-  cachedHeroSlides = null;
+  cachedHeroSlides = [...DEFAULT_SLIDES];
   lastHeroSlidesFetch = 0;
 }
 
 // 1. Public query for Home Page Hero Slider
 export async function getHeroSlides() {
   const now = Date.now();
-  if (cachedHeroSlides && now - lastHeroSlidesFetch < HERO_SLIDES_CACHE_TTL) {
+  if (cachedHeroSlides && (now - lastHeroSlidesFetch < HERO_SLIDES_CACHE_TTL || isFetchingSlides)) {
     return cachedHeroSlides;
   }
 
+  isFetchingSlides = true;
   try {
     const slides = await prisma.heroSlide.findMany({
       where: { enabled: true },
@@ -134,6 +136,8 @@ export async function getHeroSlides() {
     console.error("getHeroSlides error:", err);
     // Fallback in-memory slides if DB error occurs
     return DEFAULT_SLIDES.map((s, idx) => ({ ...s, id: `fallback-${idx}`, createdAt: new Date(), updatedAt: new Date() }));
+  } finally {
+    isFetchingSlides = false;
   }
 }
 

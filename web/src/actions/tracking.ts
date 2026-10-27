@@ -39,6 +39,7 @@ function safeRevalidate(path: string) {
 let cachedTrackingConfig: TrackingConfigData = { ...DEFAULT_TRACKING_CONFIG };
 let lastTrackingFetch = Date.now();
 const TRACKING_CACHE_TTL = 300000; // 5 minutes
+let isFetchingTracking = false;
 
 export async function invalidateTrackingCache() {
   cachedTrackingConfig = { ...DEFAULT_TRACKING_CONFIG };
@@ -51,10 +52,11 @@ export async function invalidateTrackingCache() {
  */
 export async function getTrackingConfig(): Promise<TrackingConfigData> {
   const now = Date.now();
-  if (now - lastTrackingFetch < TRACKING_CACHE_TTL) {
+  if (now - lastTrackingFetch < TRACKING_CACHE_TTL || isFetchingTracking) {
     return cachedTrackingConfig;
   }
 
+  isFetchingTracking = true;
   try {
     // Zero-WASM Fast Path for Cloudflare Workers: Query D1 directly via C++ binding
     let existingRow: any = null;
@@ -90,6 +92,8 @@ export async function getTrackingConfig(): Promise<TrackingConfigData> {
     return cachedTrackingConfig;
   } catch {
     return cachedTrackingConfig;
+  } finally {
+    isFetchingTracking = false;
   }
 }
 

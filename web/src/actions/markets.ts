@@ -268,10 +268,16 @@ const DEFAULT_MARKETS = [
   },
 ];
 
-// Edge in-memory cache for market queries to prevent D1 hits during SSR and page navigation
-let cachedHomepageMarkets: { topTickers: any[]; homeListings: any[] } | null = null;
-let lastHomepageFetch = 0;
-const MARKETS_CACHE_TTL = 60000; // 60 seconds
+const DEFAULT_HOMEPAGE_MARKETS = {
+  topTickers: DEFAULT_MARKETS.filter((m) => m.isTopTicker),
+  homeListings: DEFAULT_MARKETS.filter((m) => m.isListedOnHome),
+};
+
+// Edge in-memory cache pre-warmed to guarantee zero cold-start overhead
+let cachedHomepageMarkets: { topTickers: any[]; homeListings: any[] } = DEFAULT_HOMEPAGE_MARKETS;
+let lastHomepageFetch = Date.now();
+const MARKETS_CACHE_TTL = 120000; // 2 minutes
+let isFetchingHomepageMarkets = false;
 
 const cachedActiveMarkets: Record<string, any[] | undefined> = {};
 const lastActiveMarketsFetch: Record<string, number | undefined> = {};
@@ -279,7 +285,7 @@ const lastActiveMarketsFetch: Record<string, number | undefined> = {};
 let marketsSeededChecked = true;
 
 export async function invalidateMarketsCache() {
-  cachedHomepageMarkets = null;
+  cachedHomepageMarkets = DEFAULT_HOMEPAGE_MARKETS;
   lastHomepageFetch = 0;
   for (const k of Object.keys(cachedActiveMarkets)) {
     delete cachedActiveMarkets[k];
@@ -356,10 +362,11 @@ export async function getActiveMarkets(tradingMode: string = "ALL") {
  */
 export async function getHomepageMarkets() {
   const now = Date.now();
-  if (cachedHomepageMarkets && now - lastHomepageFetch < MARKETS_CACHE_TTL) {
+  if (cachedHomepageMarkets && (now - lastHomepageFetch < MARKETS_CACHE_TTL || isFetchingHomepageMarkets)) {
     return cachedHomepageMarkets;
   }
 
+  isFetchingHomepageMarkets = true;
   try {
     const [topTickers, homeListings] = await Promise.all([
       prisma.market.findMany({
@@ -393,6 +400,8 @@ export async function getHomepageMarkets() {
       topTickers: DEFAULT_MARKETS.filter((m) => m.isTopTicker),
       homeListings: DEFAULT_MARKETS.filter((m) => m.isListedOnHome),
     };
+  } finally {
+    isFetchingHomepageMarkets = false;
   }
 }
 

@@ -45,22 +45,11 @@ const DEFAULT_TICKERS: Record<string, { price: string; changePercent: string; hi
 let cachedTickers: Record<string, { price: string; changePercent: string; high: string; low: string }> = { ...DEFAULT_TICKERS };
 let lastFetchTime = Date.now();
 const CACHE_TTL_MS = 15000; // 15 seconds edge memory cache
+let isFetching = false;
 
-export async function GET() {
-  const now = Date.now();
-
-  // Serve from edge memory cache if still fresh (< 1ms CPU time)
-  if (now - lastFetchTime < CACHE_TTL_MS && Object.keys(cachedTickers).length > 0) {
-    return NextResponse.json(
-      { success: true, tickers: cachedTickers, cached: true },
-      {
-        headers: {
-          "Cache-Control": "public, max-age=5, s-maxage=10, stale-while-revalidate=60",
-        },
-      }
-    );
-  }
-
+async function refreshTickersInBackground() {
+  if (isFetching) return;
+  isFetching = true;
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 2000);
@@ -89,17 +78,30 @@ export async function GET() {
           };
         }
         cachedTickers = fetchedMap;
-        lastFetchTime = now;
+        lastFetchTime = Date.now();
       }
     }
   } catch {
     // Suppress network/timeout errors - cached tickers ensure uninterrupted operation
+  } finally {
+    isFetching = false;
+  }
+}
+
+export async function GET() {
+  const now = Date.now();
+
+  // If cache is expired, trigger background refresh without blocking current request
+  if (now - lastFetchTime >= CACHE_TTL_MS) {
+    refreshTickersInBackground().catch(() => {});
   }
 
+  // Always return from edge memory cache (< 1ms CPU time, 0ms I/O wait)
   return NextResponse.json(
     {
       success: true,
       tickers: cachedTickers,
+      cached: true,
       lastUpdated: new Date(lastFetchTime).toISOString(),
     },
     {

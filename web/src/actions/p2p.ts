@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { sendP2pOrderNotification } from "@/lib/email";
 
 function safeRevalidate(path: string) {
+  invalidateP2pAdsCache();
   try {
     revalidatePath(path);
   } catch {
@@ -17,6 +18,14 @@ function safeRevalidate(path: string) {
 // 1. P2P ADS
 // ==========================================
 
+const cachedP2pAdsMap = new Map<string, { data: any[]; timestamp: number }>();
+const isFetchingP2pAdsMap = new Set<string>();
+const P2P_ADS_CACHE_TTL = 30000; // 30 seconds edge cache
+
+export async function invalidateP2pAdsCache() {
+  cachedP2pAdsMap.clear();
+}
+
 export async function getP2pAds(params?: {
   side?: string;
   asset?: string;
@@ -24,6 +33,16 @@ export async function getP2pAds(params?: {
   paymentMethod?: string;
   amount?: number;
 }) {
+  const cacheKey = `${params?.side || "all"}_${params?.asset || "all"}_${params?.fiat || "all"}_${params?.paymentMethod || "all"}_${params?.amount || "all"}`;
+  const now = Date.now();
+  const cached = cachedP2pAdsMap.get(cacheKey);
+
+  if (cached && (now - cached.timestamp < P2P_ADS_CACHE_TTL || isFetchingP2pAdsMap.has(cacheKey))) {
+    return { success: true, data: cached.data, cached: true };
+  }
+
+  isFetchingP2pAdsMap.add(cacheKey);
+
   try {
     const where: any = {
       status: "ACTIVE",
@@ -87,9 +106,18 @@ export async function getP2pAds(params?: {
       result.sort((a: any, b: any) => a.price - b.price);
     }
 
+    if (result) {
+      cachedP2pAdsMap.set(cacheKey, { data: result, timestamp: Date.now() });
+    }
+
     return { success: true, data: result };
   } catch (error: any) {
+    if (cached) {
+      return { success: true, data: cached.data, cached: true };
+    }
     return { success: false, error: error.message || "Failed to fetch ads" };
+  } finally {
+    isFetchingP2pAdsMap.delete(cacheKey);
   }
 }
 

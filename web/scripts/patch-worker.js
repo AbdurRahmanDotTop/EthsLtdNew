@@ -1,12 +1,21 @@
 const fs = require('fs');
 const path = require('path');
 
-console.log('[patch-worker] Ensuring .open-next/worker.js has RSC loop prevention...');
+console.log('[patch-worker] Ensuring .open-next/worker.js has static handler import and high-concurrency resilience...');
 
 const workerFile = path.join(__dirname, '..', '.open-next', 'worker.js');
 if (fs.existsSync(workerFile)) {
   let content = fs.readFileSync(workerFile, 'utf8');
-  if (!content.includes('cleanRscUrl')) {
+
+  // 1. Ensure static handler import
+  if (!content.includes('import { handler } from "./server-functions/default/handler.mjs";')) {
+    const mwImport = 'import { handler as middlewareHandler } from "./middleware/handler.mjs";';
+    const bothImports = `${mwImport}\n// @ts-expect-error: Will be resolved by wrangler build\nimport { handler } from "./server-functions/default/handler.mjs";`;
+    content = content.replace(mwImport, bothImports);
+  }
+
+  // 2. Ensure cleanRscUrl helper
+  if (!content.includes('function cleanRscUrl(')) {
     const hookMarker = `export default {`;
     const helperCode = `
 function cleanRscUrl(rawUrl) {
@@ -38,50 +47,46 @@ function cleanRscUrl(rawUrl) {
                 request = new Request(cleanedIncoming.toString(), request);
             }`;
     content = content.replace(incomingMarker, incomingReplacement);
+  }
 
-    // Intercept handler call and response
-    const handlerMarker = `const { handler } = await import("./server-functions/default/handler.mjs");
+  // 3. Ensure resilient execution block
+  if (content.includes('const { handler } = await import("./server-functions/default/handler.mjs");')) {
+    const oldBlock = `const reqOrResp = await middlewareHandler(request, env, ctx);
+            if (reqOrResp instanceof Response) {
+                return reqOrResp;
+            }
+            // @ts-expect-error: resolved by wrangler build
+            const { handler } = await import("./server-functions/default/handler.mjs");
             return handler(reqOrResp, env, ctx, request.signal);`;
-    const handlerReplacement = `const { handler } = await import("./server-functions/default/handler.mjs");
-            const finalResp = await handler(reqOrResp, env, ctx, request.signal);
 
-            if (finalResp && finalResp.status >= 300 && finalResp.status < 400) {
-                const location = finalResp.headers.get("Location");
-                if (location) {
-                    try {
-                        const targetUrl = new URL(location, url.origin);
-                        const cleanedLocation = cleanRscUrl(targetUrl.href);
-                        const effectiveUrl = cleanedLocation || targetUrl;
-
-                        if (effectiveUrl.pathname === url.pathname && effectiveUrl.search === url.search) {
-                            effectiveUrl.searchParams.delete("_rsc");
-                            const newHeaders = new Headers(finalResp.headers);
-                            newHeaders.set("Location", effectiveUrl.pathname + effectiveUrl.search);
-                            return new Response(finalResp.body, {
-                                status: finalResp.status,
-                                statusText: finalResp.statusText,
-                                headers: newHeaders,
-                            });
-                        } else if (cleanedLocation) {
-                            const newHeaders = new Headers(finalResp.headers);
-                            newHeaders.set("Location", cleanedLocation.pathname + cleanedLocation.search);
-                            return new Response(finalResp.body, {
-                                status: finalResp.status,
-                                statusText: finalResp.statusText,
-                                headers: newHeaders,
-                            });
-                        }
-                    } catch {}
+    const newBlock = `let reqOrResp;
+            try {
+                reqOrResp = await middlewareHandler(request, env, ctx);
+                if (reqOrResp instanceof Response) {
+                    return reqOrResp;
                 }
+                if (reqOrResp && reqOrResp.internalEvent && reqOrResp.internalEvent.rawPath === "/500" && url.pathname !== "/500") {
+                    reqOrResp = request;
+                }
+            } catch {
+                reqOrResp = request;
             }
 
-            return finalResp;`;
-    content = content.replace(handlerMarker, handlerReplacement);
-    fs.writeFileSync(workerFile, content, 'utf8');
-    console.log('[patch-worker] Successfully patched .open-next/worker.js');
-  } else {
-    console.log('[patch-worker] .open-next/worker.js is already patched.');
+            let finalResp;
+            try {
+                finalResp = await handler(reqOrResp || request, env, ctx, request.signal);
+            } catch {
+                try {
+                    finalResp = await handler(request, env, ctx, request.signal);
+                } catch {
+                    return new Response("Service Temporarily Unavailable", { status: 503 });
+                }
+            }`;
+    content = content.replace(oldBlock, newBlock);
   }
+
+  fs.writeFileSync(workerFile, content, 'utf8');
+  console.log('[patch-worker] Successfully updated .open-next/worker.js');
 } else {
   console.warn('[patch-worker] .open-next/worker.js not found, skipping.');
 }

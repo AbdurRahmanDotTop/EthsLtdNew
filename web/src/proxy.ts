@@ -108,8 +108,6 @@ export const config = {
     "/account/:path*",
     "/contracts/:path*",
     "/rm/:path*",
-    "/login",
-    "/register",
   ],
 };
 
