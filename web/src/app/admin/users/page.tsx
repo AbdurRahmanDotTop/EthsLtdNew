@@ -15,6 +15,9 @@ import {
   Loader2,
   PlusCircle,
   DollarSign,
+  Trash2,
+  AlertOctagon,
+  AlertTriangle,
 } from "lucide-react";
 import {
   getAllUsers,
@@ -27,6 +30,7 @@ import {
   adminRemoveRmFromUser,
   adminResetUserPin,
   getAllRmsAdmin,
+  adminDeleteUser,
   type UserStatus,
   type UserRole,
   type UpdateUserProfileAdminInput,
@@ -133,6 +137,38 @@ export default function AdminUsersPage() {
   const [isAssigningRm, setIsAssigningRm] = useState(false);
   const [isRemovingRm, setIsRemovingRm] = useState(false);
   const [isResettingPin, setIsResettingPin] = useState(false);
+
+  // Delete User Modal State
+  const [deleteModalUser, setDeleteModalUser] = useState<UserListItem | null>(null);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [isDeletingUser, setIsDeletingUser] = useState(false);
+
+  const handlePermanentDelete = async () => {
+    if (!deleteModalUser) return;
+    if (deleteConfirmText.trim() !== "DELETE") {
+      toast.error("Please type DELETE to confirm permanent deletion.");
+      return;
+    }
+
+    setIsDeletingUser(true);
+    try {
+      const res = await adminDeleteUser(deleteModalUser.id);
+      if (res.success) {
+        toast.success(res.message || "User permanently deleted.");
+        setDeleteModalUser(null);
+        setProfileModalUser(null);
+        setDeleteConfirmText("");
+        loadUsers();
+      } else {
+        toast.error(res.error || "Failed to delete user.");
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "An unexpected error occurred.";
+      toast.error(msg);
+    } finally {
+      setIsDeletingUser(false);
+    }
+  };
 
   const loadUsers = useCallback(async () => {
     try {
@@ -516,6 +552,17 @@ export default function AdminUsersPage() {
                             className="px-3 py-1.5 rounded-lg bg-[#222530] hover:bg-[#2A2D38] border border-white/10 text-white font-semibold text-xs transition-colors cursor-pointer"
                           >
                             Adjust Balance
+                          </button>
+                          <button
+                            onClick={() => {
+                              setDeleteModalUser(user);
+                              setDeleteConfirmText("");
+                            }}
+                            title="Permanently Delete User"
+                            className="px-2.5 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 font-semibold text-xs transition-colors flex items-center gap-1 cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span className="hidden xl:inline">Delete</span>
                           </button>
                         </div>
                       </td>
@@ -903,6 +950,35 @@ export default function AdminUsersPage() {
                       </div>
                     </div>
                   )}
+                  {/* 6. Danger Zone: Permanent Account Deletion */}
+                  <div className="space-y-3 p-4 bg-rose-500/5 rounded-xl border border-rose-500/20">
+                    <h4 className="font-bold text-rose-400 uppercase tracking-wider text-[11px] flex items-center gap-1.5 border-b border-rose-500/20 pb-2">
+                      <AlertOctagon className="w-3.5 h-3.5 text-rose-400" />
+                      <span>Danger Zone: Permanent Account Deletion</span>
+                    </h4>
+
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3 bg-[#161822] rounded-xl border border-rose-500/10">
+                      <div>
+                        <div className="font-bold text-white">Permanently Delete User Account</div>
+                        <div className="text-[11px] text-gray-400 mt-0.5">
+                          Irreversibly delete this user and purge all wallets, trading orders, P2P ads, and KYC records from production.
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (profileModalUser) {
+                            setDeleteModalUser(profileModalUser);
+                            setDeleteConfirmText("");
+                          }
+                        }}
+                        className="px-3.5 py-2 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold transition-colors cursor-pointer whitespace-nowrap shadow-lg shadow-rose-500/20 flex items-center gap-1.5"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Delete User</span>
+                      </button>
+                    </div>
+                  </div>
                 </>
               )}
             </div>
@@ -919,6 +995,95 @@ export default function AdminUsersPage() {
               >
                 Close
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Permanent Deletion Confirmation Modal */}
+      {deleteModalUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 px-4 backdrop-blur-md animate-in fade-in">
+          <div className="w-full max-w-lg bg-[#161822] border border-rose-500/40 rounded-2xl p-6 shadow-2xl text-white font-sans space-y-4">
+            <div className="flex items-center gap-3 text-rose-400 pb-3 border-b border-white/10">
+              <div className="w-10 h-10 rounded-xl bg-rose-500/15 flex items-center justify-center">
+                <AlertOctagon className="w-5 h-5 text-rose-400" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white">Permanent User Deletion</h3>
+                <p className="text-xs text-rose-400/90 font-mono">IRREVERSIBLE SYSTEM ACTION</p>
+              </div>
+            </div>
+
+            <div className="bg-rose-500/10 border border-rose-500/20 rounded-xl p-3.5 text-xs text-rose-300 space-y-2">
+              <p className="font-bold text-white">
+                Target User: <span className="font-mono text-rose-400">{deleteModalUser.email}</span> (UID: #{deleteModalUser.uid})
+              </p>
+              <p className="text-[11px] text-gray-300">
+                This operation permanently destroys all associated data across the entire platform:
+              </p>
+              <ul className="list-disc pl-5 space-y-1 text-[11px] text-rose-200 font-sans">
+                <li>Authentication sessions, credentials, and user profile</li>
+                <li>All wallet balances (USDT, BTC, ETH, ACH), locked & escrow funds</li>
+                <li>Perpetual & Option trading orders and financial transactions</li>
+                <li>P2P advertisements, orders, messages, payment methods, and feedback</li>
+                <li>Relationship Manager connections, contracts, and conversation history</li>
+                <li>KYC verification records and documents in Cloudflare D1 storage</li>
+              </ul>
+            </div>
+
+            {deleteModalUser.email === "admin@ethsltd.com" || deleteModalUser.uid === 100001 ? (
+              <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-xs text-amber-300 font-semibold flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>This is the primary protected system Super Admin account and cannot be deleted.</span>
+              </div>
+            ) : (
+              <div>
+                <label className="text-xs text-gray-300 block mb-1.5">
+                  To confirm permanent deletion, type <span className="font-mono text-rose-400 font-bold">DELETE</span> below:
+                </label>
+                <input
+                  type="text"
+                  value={deleteConfirmText}
+                  onChange={(e) => setDeleteConfirmText(e.target.value)}
+                  placeholder="DELETE"
+                  className="w-full bg-[#1E202B] border border-white/10 focus:border-rose-500 px-3.5 py-2.5 rounded-xl text-xs text-white outline-none font-mono"
+                />
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-white/10">
+              <button
+                type="button"
+                onClick={() => {
+                  setDeleteModalUser(null);
+                  setDeleteConfirmText("");
+                }}
+                disabled={isDeletingUser}
+                className="px-4 py-2 rounded-xl bg-[#1E202B] hover:bg-[#252836] text-xs font-semibold text-gray-300 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+
+              {!(deleteModalUser.email === "admin@ethsltd.com" || deleteModalUser.uid === 100001) && (
+                <button
+                  type="button"
+                  onClick={handlePermanentDelete}
+                  disabled={deleteConfirmText.trim() !== "DELETE" || isDeletingUser}
+                  className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:opacity-40 text-white font-bold text-xs transition-colors flex items-center gap-2 cursor-pointer shadow-lg shadow-rose-600/20"
+                >
+                  {isDeletingUser ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin text-white" />
+                      <span>Permanently Deleting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-4 h-4 text-white" />
+                      <span>Permanently Delete User</span>
+                    </>
+                  )}
+                </button>
+              )}
             </div>
           </div>
         </div>

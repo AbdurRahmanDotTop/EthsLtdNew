@@ -4,6 +4,14 @@
 import prisma, { DBClient, DBWallet, DBEmailConfig } from "@/lib/prisma";
 import { getSession, hashPassword } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
+import { getCloudflareContext } from "@opennextjs/cloudflare";
+import {
+  getBackupDashboardStats,
+  validateBackupPackage,
+  restoreFullDatabase,
+  restoreWebsiteConfiguration,
+  restoreMediaArchive,
+} from "@/lib/backup-service";
 import {
   sendDepositNotification,
   sendWithdrawalNotification,
@@ -173,6 +181,258 @@ export async function updateUserRole(userId: string, role: UserRole) {
   safeRevalidate("/admin/users");
   safeRevalidate("/admin/rm");
   return { success: true };
+}
+
+/**
+ * Super Admin: Complete Permanent User Deletion
+ * Purges user profile, auth, financial wallets, transactions, trading orders,
+ * P2P marketplace ads/orders/messages/feedback, RM contracts/connections,
+ * KYC applications & documents from Cloudflare D1 / storage, and logs an audit event.
+ */
+export async function adminDeleteUser(userId: string): Promise<{ success: boolean; message?: string; error?: string }> {
+  const admin = await verifyAdmin();
+  if (admin.role !== "SUPER_ADMIN") {
+    return { success: false, error: "Access denied. Only Super Admin can permanently delete user accounts." };
+  }
+
+  if (admin.id === userId) {
+    return { success: false, error: "Access denied: You cannot delete your own Super Admin account." };
+  }
+
+  const target = await prisma.user.findUnique({
+    where: { id: userId },
+    include: {
+      wallets: true,
+      rmProfile: true,
+      kyc: true,
+    },
+  });
+
+  if (!target) {
+    return { success: false, error: "User not found." };
+  }
+
+  // Protected Account Safeguards
+  if (target.email === "admin@ethsltd.com" || target.uid === 100001) {
+    return { success: false, error: "Protected System Account: The primary system Super Admin account cannot be deleted." };
+  }
+
+  if (target.role === "SUPER_ADMIN") {
+    const superAdminCount = await prisma.user.count({ where: { role: "SUPER_ADMIN" } });
+    if (superAdminCount <= 1) {
+      return { success: false, error: "Protected Account: Cannot delete the last remaining Super Admin account." };
+    }
+  }
+
+  try {
+    // 1. RM System Cleanup (Conversations, Messages, Contracts, Connections, Reviews)
+    const connectionIds = (
+      await prisma.rmConnection.findMany({
+        where: { OR: [{ userId }, { rmId: userId }] },
+        select: { id: true },
+      })
+    ).map((c: any) => c.id);
+
+    const conversationIds = (
+      await prisma.rmConversation.findMany({
+        where: { OR: [{ connectionId: { in: connectionIds } }, { userId }, { rmId: userId }] },
+        select: { id: true },
+      })
+    ).map((c: any) => c.id);
+
+    if (conversationIds.length > 0) {
+      await prisma.rmMessage.deleteMany({
+        where: { OR: [{ conversationId: { in: conversationIds } }, { senderId: userId }] },
+      });
+      await prisma.rmConversation.deleteMany({
+        where: { id: { in: conversationIds } },
+      });
+    }
+
+    if (connectionIds.length > 0) {
+      await prisma.investmentContract.deleteMany({
+        where: { OR: [{ connectionId: { in: connectionIds } }, { userId }, { rmId: userId }] },
+      });
+      await prisma.rmConnection.deleteMany({
+        where: { id: { in: connectionIds } },
+      });
+    } else {
+      await prisma.investmentContract.deleteMany({
+        where: { OR: [{ userId }, { rmId: userId }] },
+      });
+    }
+
+    await prisma.rmNotification.deleteMany({ where: { userId } });
+    await prisma.rmReview.deleteMany({ where: { OR: [{ userId }, { rmId: userId }] } });
+    if (target.rmProfile) {
+      await prisma.rmProfile.deleteMany({ where: { userId } });
+    }
+
+    // 2. P2P Marketplace Cleanup (Ads, Orders, Messages, Disputes, Feedback, Payment Methods)
+    const userAds = await prisma.p2pAd.findMany({ where: { userId }, select: { id: true } });
+    const userAdIds = userAds.map((a: any) => a.id);
+
+    const userOrders = await prisma.p2pOrder.findMany({
+      where: { OR: [{ buyerId: userId }, { sellerId: userId }, { adId: { in: userAdIds } }] },
+      select: { id: true },
+    });
+    const orderIds = userOrders.map((o: any) => o.id);
+
+    if (orderIds.length > 0) {
+      await prisma.p2pFeedback.deleteMany({
+        where: { OR: [{ orderId: { in: orderIds } }, { fromUserId: userId }, { toUserId: userId }] },
+      });
+      await prisma.p2pMessage.deleteMany({
+        where: { OR: [{ orderId: { in: orderIds } }, { senderId: userId }] },
+      });
+      await prisma.p2pDispute.deleteMany({
+        where: { OR: [{ orderId: { in: orderIds } }, { openerId: userId }] },
+      });
+      await prisma.p2pOrder.deleteMany({ where: { id: { in: orderIds } } });
+    } else {
+      await prisma.p2pFeedback.deleteMany({
+        where: { OR: [{ fromUserId: userId }, { toUserId: userId }] },
+      });
+      await prisma.p2pMessage.deleteMany({ where: { senderId: userId } });
+      await prisma.p2pDispute.deleteMany({ where: { openerId: userId } });
+    }
+
+    // Unassign this user if assigned as dispute admin
+    await prisma.p2pDispute.updateMany({
+      where: { assignedAdminId: userId },
+      data: { assignedAdminId: null },
+    });
+
+    if (userAdIds.length > 0) {
+      await prisma.p2pAd.deleteMany({ where: { id: { in: userAdIds } } });
+    }
+    await prisma.p2pPaymentMethod.deleteMany({ where: { userId } });
+
+    // 3. Financial, Trading, and Wallets
+    await prisma.order.deleteMany({ where: { userId } });
+    await prisma.transaction.deleteMany({ where: { userId } });
+    await prisma.depositRequest.deleteMany({ where: { userId } });
+    await prisma.withdrawalRequest.deleteMany({ where: { userId } });
+    await prisma.bankCard.deleteMany({ where: { userId } });
+    await prisma.userCryptoWallet.deleteMany({ where: { userId } });
+    await prisma.wallet.deleteMany({ where: { userId } });
+
+    // 4. KYC & Stored Document Chunks in D1
+    await prisma.kycApplication.deleteMany({ where: { userId } });
+    try {
+      const cf = getCloudflareContext({ async: false });
+      const dbBinding = (cf as any)?.env?.DB || (globalThis as any).DB;
+      if (dbBinding) {
+        await dbBinding.prepare("DELETE FROM kyc_documents WHERE user_id = ?").bind(userId).run();
+      } else {
+        await prisma.$executeRawUnsafe("DELETE FROM kyc_documents WHERE user_id = $1", userId);
+      }
+    } catch (e) {
+      console.warn("D1 kyc_documents deletion fallback warning:", e);
+    }
+
+    // 5. Auth Tokens
+    await prisma.verificationToken.deleteMany({ where: { identifier: target.email } });
+
+    // 6. Handle previous AuditLogs referencing this user
+    await prisma.auditLog.deleteMany({ where: { targetType: "USER", targetId: userId } });
+    await prisma.auditLog.deleteMany({ where: { adminId: userId } });
+
+    // 7. Delete the User Record
+    await prisma.user.delete({ where: { id: userId } });
+
+    // 8. Record Immutable Administrative Audit Event
+    await prisma.auditLog.create({
+      data: {
+        adminId: admin.id,
+        adminEmail: admin.email,
+        action: "USER_PERMANENT_DELETION",
+        targetType: "USER",
+        targetId: userId,
+        details: `Super Admin permanently deleted user UID: ${target.uid} (${target.email}, Role: ${target.role}) and purged all associated financial, P2P, KYC, and document records across the application.`,
+      },
+    });
+
+    safeRevalidate("/admin/users");
+    safeRevalidate("/admin/rm");
+    safeRevalidate("/admin/kyc");
+    safeRevalidate("/admin/deposits");
+    safeRevalidate("/admin/withdrawals");
+
+    return {
+      success: true,
+      message: `User ${target.email} (UID: ${target.uid}) and all associated records were permanently deleted.`,
+    };
+  } catch (err: any) {
+    console.error("adminDeleteUser execution error:", err);
+    return {
+      success: false,
+      error: `Failed to permanently delete user: ${err?.message || String(err)}`,
+    };
+  }
+}
+
+/**
+ * Super Admin: Backup and Restore Operations
+ */
+export async function adminGetBackupStats() {
+  await verifyAdmin();
+  return await getBackupDashboardStats();
+}
+
+export async function adminValidateBackupPackage(pkg: any) {
+  await verifyAdmin();
+  return validateBackupPackage(pkg);
+}
+
+export async function adminRestoreDatabase(pkg: any) {
+  const admin = await verifyAdmin();
+  if (admin.role !== "SUPER_ADMIN") {
+    return { success: false, error: "Access denied. Only Super Admin can restore database backups." };
+  }
+  const validation = validateBackupPackage(pkg);
+  if (!validation.valid) {
+    return { success: false, error: validation.errors.join("; ") };
+  }
+  const res = await restoreFullDatabase(pkg.data, admin);
+  if (res.success) {
+    safeRevalidate("/admin");
+    safeRevalidate("/admin/users");
+    safeRevalidate("/admin/markets");
+    safeRevalidate("/admin/hero-slider");
+  }
+  return res;
+}
+
+export async function adminRestoreWebsiteConfig(pkg: any) {
+  const admin = await verifyAdmin();
+  if (admin.role !== "SUPER_ADMIN") {
+    return { success: false, error: "Access denied. Only Super Admin can restore website configuration." };
+  }
+  const validation = validateBackupPackage(pkg);
+  if (!validation.valid) {
+    return { success: false, error: validation.errors.join("; ") };
+  }
+  const res = await restoreWebsiteConfiguration(pkg.data, admin);
+  if (res.success) {
+    safeRevalidate("/admin/markets");
+    safeRevalidate("/admin/hero-slider");
+    safeRevalidate("/admin/p2p/channels");
+    safeRevalidate("/admin/tracking");
+  }
+  return res;
+}
+
+export async function adminRestoreMedia(pkg: any) {
+  const admin = await verifyAdmin();
+  if (admin.role !== "SUPER_ADMIN") {
+    return { success: false, error: "Access denied. Only Super Admin can restore media archives." };
+  }
+  const validation = validateBackupPackage(pkg);
+  if (!validation.valid) {
+    return { success: false, error: validation.errors.join("; ") };
+  }
+  return await restoreMediaArchive(pkg.data, admin);
 }
 
 // 3. Balance & Asset Adjustments

@@ -25,7 +25,8 @@ import {
   Layers,
   Banknote,
   Radio,
-  Globe
+  Globe,
+  Database
 } from "lucide-react";
 import { logoutUser } from "@/actions/auth";
 import { toast } from "sonner";
@@ -55,6 +56,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     { name: "Tracking & Pixels", href: "/admin/tracking", icon: Radio },
     { name: "Sitemap & SEO", href: "/admin/sitemap", icon: Globe },
     { name: "Hero Slider", href: "/admin/hero-slider", icon: Presentation },
+    { name: "Backup & Restore", href: "/admin/backups", icon: Database },
     { name: "Audit Logs", href: "/admin/audit-logs", icon: ShieldAlert },
   ];
 
