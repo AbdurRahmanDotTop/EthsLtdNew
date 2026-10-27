@@ -26,12 +26,26 @@ function VerifyEmailForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const emailParam = searchParams.get("email") || "";
+  const codeParam = searchParams.get("code") || "";
 
-  const [email] = useState(emailParam);
-  const [otp, setOtp] = useState("");
+  const [email, setEmail] = useState(emailParam);
+  const [otp, setOtp] = useState(codeParam.replace(/\D/g, "").slice(0, 6));
   const [isLoading, setIsLoading] = useState(false);
   const [isResending, setIsResending] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(60);
+
+  // Sync state if query parameters change
+  useEffect(() => {
+    if (emailParam && emailParam !== email) {
+      setEmail(emailParam);
+    }
+    if (codeParam) {
+      const cleanCode = codeParam.replace(/\D/g, "").slice(0, 6);
+      if (cleanCode && cleanCode !== otp) {
+        setOtp(cleanCode);
+      }
+    }
+  }, [emailParam, codeParam]);
 
   // Active countdown timer for OTP resend cooldown
   useEffect(() => {
@@ -76,7 +90,8 @@ function VerifyEmailForm() {
 
     setIsResending(true);
     try {
-      const res = await requestEmailVerificationOtp(email || undefined);
+      const origin = typeof window !== "undefined" ? window.location.origin : undefined;
+      const res = await requestEmailVerificationOtp(email || undefined, origin);
       if (res.success) {
         toast.success(res.message || "A new 6-digit verification code has been dispatched.");
         setResendCooldown(60);

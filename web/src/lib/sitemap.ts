@@ -1,4 +1,5 @@
 import prisma from "@/lib/prisma";
+import { getAppUrlSync } from "@/lib/app-url";
 
 export interface SitemapEntry {
   loc: string;
@@ -8,7 +9,7 @@ export interface SitemapEntry {
   category: "core" | "trading" | "options" | "asset" | "auth" | "advisory";
 }
 
-export const BASE_SITE_URL = process.env.NEXT_PUBLIC_APP_URL || "https://ethsltd.com";
+export const BASE_SITE_URL = getAppUrlSync();
 
 export async function fetchEligibleSitemapEntries(baseUrl: string = BASE_SITE_URL): Promise<SitemapEntry[]> {
   const cleanBase = baseUrl.replace(/\/+$/, "");

@@ -81,6 +81,7 @@ function RegisterForm() {
         turnstileToken,
         honeypot,
         submissionTiming: mountTime,
+        appOrigin: typeof window !== "undefined" ? window.location.origin : undefined,
       });
 
       if (res.success) {

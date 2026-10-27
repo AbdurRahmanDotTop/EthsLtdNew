@@ -17,6 +17,7 @@ import {
   sendLoginAlertNotification,
   sendEmailVerificationOtpNotification,
 } from "@/lib/email";
+import { getAppUrl } from "@/lib/app-url";
 
 export async function loginUser(formData: { email: string; password: string }) {
   try {
@@ -97,9 +98,10 @@ export async function registerUser(formData: {
   turnstileToken?: string;
   honeypot?: string;
   submissionTiming?: number;
+  appOrigin?: string;
 }) {
   try {
-    const { email, password, name, transactionPin, turnstileToken, honeypot, submissionTiming } = formData;
+    const { email, password, name, transactionPin, turnstileToken, honeypot, submissionTiming, appOrigin } = formData;
 
     // 1. Honeypot check (Bots fill invisible fields)
     if (honeypot && honeypot.trim() !== "") {
@@ -115,8 +117,9 @@ export async function registerUser(formData: {
 
     // 3. Client IP extraction
     let clientIp = "127.0.0.1";
+    let headersList: Headers | null = null;
     try {
-      const headersList = await headers();
+      headersList = await headers();
       clientIp = getClientIp(headersList);
     } catch {
       // In test runner or non-request environment, headers() is unavailable
@@ -264,8 +267,8 @@ export async function registerUser(formData: {
     });
 
     // 12. Send Email Verification OTP (No marketing welcome email until verified)
-    const origin = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-    const verifyUrl = `${origin}/verify-email?email=${encodeURIComponent(normalizedEmail)}`;
+    const origin = await getAppUrl(headersList, appOrigin);
+    const verifyUrl = `${origin}/verify-email?email=${encodeURIComponent(normalizedEmail)}&code=${otpCode}`;
 
     try {
       await Promise.race([
@@ -305,7 +308,7 @@ export async function registerUser(formData: {
 /**
  * Resend Email Verification OTP with strict 60-second cooldown and rate limiting
  */
-export async function requestEmailVerificationOtp(customEmail?: string) {
+export async function requestEmailVerificationOtp(customEmail?: string, appOrigin?: string) {
   try {
     const session = await getSession();
     let emailToVerify: string | null = null;
@@ -330,8 +333,9 @@ export async function requestEmailVerificationOtp(customEmail?: string) {
 
     // Extract IP and rate limit
     let clientIp = "127.0.0.1";
+    let headersList: Headers | null = null;
     try {
-      const headersList = await headers();
+      headersList = await headers();
       clientIp = getClientIp(headersList);
     } catch {
       // Outside active Next.js request context
@@ -384,8 +388,8 @@ export async function requestEmailVerificationOtp(customEmail?: string) {
       },
     });
 
-    const origin = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-    const verifyUrl = `${origin}/verify-email?email=${encodeURIComponent(emailToVerify)}`;
+    const origin = await getAppUrl(headersList, appOrigin);
+    const verifyUrl = `${origin}/verify-email?email=${encodeURIComponent(emailToVerify)}&code=${otpCode}`;
 
     try {
       await sendEmailVerificationOtpNotification({
@@ -723,7 +727,11 @@ export async function requestPasswordReset(formData: { email: string; appOrigin?
       },
     });
 
-    const origin = appOrigin || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+    let headersList: Headers | null = null;
+    try {
+      headersList = await headers();
+    } catch {}
+    const origin = await getAppUrl(headersList, appOrigin);
     const resetUrl = `${origin}/reset-password?token=${rawToken}&email=${encodeURIComponent(normalizedEmail)}`;
 
     // Dispatch email
@@ -916,7 +924,11 @@ export async function requestPinReset(formData: { email: string; appOrigin?: str
       },
     });
 
-    const origin = appOrigin || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+    let headersList: Headers | null = null;
+    try {
+      headersList = await headers();
+    } catch {}
+    const origin = await getAppUrl(headersList, appOrigin);
     const resetUrl = `${origin}/reset-pin?token=${rawToken}&email=${encodeURIComponent(normalizedEmail)}`;
 
     // Dispatch email

@@ -11,6 +11,8 @@ database_id = "9fa25eaa-6b12-4da0-ad92-8f2a9ec41496"
 migrations_dir = "../database/migrations"
 
 [vars]
+APP_URL = "https://ethsltd.com"
+FRONTEND_URL = "https://ethsltd.com"
 JWT_SECRET = "ethsltd_super_secret_jwt_key_2026_production"
 TURNSTILE_SECRET_KEY = "0x4AAAAAAFn4uXDwpUDV7pZJSdbAQ9Wf3XY"
 # BREVO_API_KEY should be set via wrangler secret or Cloudflare dashboard

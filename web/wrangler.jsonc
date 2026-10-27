@@ -26,6 +26,7 @@
     }
   ],
   "vars": {
+    "APP_URL": "https://ethsltd.com",
     "NEXT_PUBLIC_API_URL": "https://api-ethsltd-new.ethsltd.workers.dev",
     "NEXT_PUBLIC_APP_URL": "https://ethsltd.com",
     "NEXT_PUBLIC_TURNSTILE_SITE_KEY": "0x4AAAAAAFn4uW-glCk6yige",

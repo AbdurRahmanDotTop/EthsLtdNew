@@ -8,6 +8,7 @@ import {
   FIAT_CURRENCIES,
   formatFromHeader,
 } from "./email-categories";
+import { getAppUrlSync, sanitizeEmailUrl } from "./app-url";
 
 export { EmailCategory, resolveEmailSenderName, getCategoryForEventType, formatFromHeader };
 
@@ -370,10 +371,11 @@ export function buildEmailTemplate({
   noteText?: string;
 }) {
   const currentYear = new Date().getFullYear();
-  const ctaBlock = callToAction
+  const ctaUrl = callToAction?.url ? sanitizeEmailUrl(callToAction.url) : "";
+  const ctaBlock = callToAction && ctaUrl
     ? `
       <div style="margin: 28px 0; text-align: center;">
-        <a href="${callToAction.url}" style="background: linear-gradient(135deg, #00A070 0%, #10B981 100%); color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-weight: 700; font-size: 14px; display: inline-block; letter-spacing: 0.5px; box-shadow: 0 4px 14px rgba(0, 160, 112, 0.35);">
+        <a href="${ctaUrl}" style="background: linear-gradient(135deg, #00A070 0%, #10B981 100%); color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-weight: 700; font-size: 14px; display: inline-block; letter-spacing: 0.5px; box-shadow: 0 4px 14px rgba(0, 160, 112, 0.35);">
           ${callToAction.text}
         </a>
       </div>
@@ -453,7 +455,7 @@ export async function sendWelcomeNotification(user: { email: string; name?: stri
     `,
     callToAction: {
       text: "Go to Trader Dashboard",
-      url: process.env.NEXT_PUBLIC_APP_URL ? `${process.env.NEXT_PUBLIC_APP_URL}/assets` : "http://localhost:3000/assets",
+      url: `${getAppUrlSync()}/assets`,
     },
     noteText: "Security Reminder: ETHSLTD staff will never ask for your password, PIN, or private keys.",
   });
@@ -468,6 +470,10 @@ export async function sendWelcomeNotification(user: { email: string; name?: stri
 }
 
 export async function sendEmailVerificationOtpNotification(data: { email: string; otpCode: string; verifyUrl?: string }) {
+  const effectiveVerifyUrl = data.verifyUrl
+    ? sanitizeEmailUrl(data.verifyUrl)
+    : `${getAppUrlSync()}/verify-email?email=${encodeURIComponent(data.email)}&code=${data.otpCode}`;
+
   const html = buildEmailTemplate({
     title: `Verify Your Email Address`,
     preheader: `Your 6-digit email verification code is ${data.otpCode}`,
@@ -479,12 +485,10 @@ export async function sendEmailVerificationOtpNotification(data: { email: string
       </div>
       <p style="font-size: 13px; color: #9CA3AF;">This verification code expires in <strong>15 minutes</strong>. If you did not create an ETHSLTD account, please disregard this email.</p>
     `,
-    callToAction: data.verifyUrl
-      ? {
-          text: "Verify Account Now",
-          url: data.verifyUrl,
-        }
-      : undefined,
+    callToAction: {
+      text: "Verify Account Now",
+      url: effectiveVerifyUrl,
+    },
     noteText: "ETHSLTD Security: Never disclose your OTP code or credentials to anyone.",
   });
 
@@ -511,7 +515,7 @@ export async function sendPasswordResetNotification(data: { email: string; otpCo
     `,
     callToAction: {
       text: "Reset My Password",
-      url: data.resetUrl,
+      url: sanitizeEmailUrl(data.resetUrl),
     },
     noteText: "Do not forward or share this code with anyone. ETHSLTD will never call or message asking for your code.",
   });
@@ -539,7 +543,7 @@ export async function sendPinResetNotification(data: { email: string; otpCode: s
     `,
     callToAction: {
       text: "Reset Transaction PIN",
-      url: data.resetUrl,
+      url: sanitizeEmailUrl(data.resetUrl),
     },
     noteText: "Your Transaction PIN protects all withdrawals and asset transfers.",
   });
@@ -563,7 +567,7 @@ export async function sendPasswordChangedNotification(data: { email: string }) {
     `,
     callToAction: {
       text: "Review Account Security",
-      url: process.env.NEXT_PUBLIC_APP_URL ? `${process.env.NEXT_PUBLIC_APP_URL}/security/password` : "http://localhost:3000/assets",
+      url: `${getAppUrlSync()}/security/password`,
     },
     noteText: "CRITICAL: If you did not make this change, please contact our emergency security desk immediately.",
   });
@@ -587,7 +591,7 @@ export async function sendPinChangedNotification(data: { email: string }) {
     `,
     callToAction: {
       text: "Check Assets & Security",
-      url: process.env.NEXT_PUBLIC_APP_URL ? `${process.env.NEXT_PUBLIC_APP_URL}/assets` : "http://localhost:3000/assets",
+      url: `${getAppUrlSync()}/assets`,
     },
     noteText: "If you did not authorize this change, please report it to support immediately.",
   });
@@ -631,7 +635,7 @@ export async function sendDepositNotification(data: {
     `,
     callToAction: {
       text: "View Assets & Records",
-      url: process.env.NEXT_PUBLIC_APP_URL ? `${process.env.NEXT_PUBLIC_APP_URL}/assets/records` : "http://localhost:3000/assets/records",
+      url: `${getAppUrlSync()}/assets/records`,
     },
   });
 
@@ -675,7 +679,7 @@ export async function sendWithdrawalNotification(data: {
     `,
     callToAction: {
       text: "View Transaction History",
-      url: process.env.NEXT_PUBLIC_APP_URL ? `${process.env.NEXT_PUBLIC_APP_URL}/assets/records` : "http://localhost:3000/assets/records",
+      url: `${getAppUrlSync()}/assets/records`,
     },
   });
 
@@ -722,7 +726,7 @@ export async function sendKycNotification(data: {
     `,
     callToAction: {
       text: isApproved ? "Start Trading" : isPendingInfo ? "Provide Documents" : "Resubmit KYC",
-      url: process.env.NEXT_PUBLIC_APP_URL ? `${process.env.NEXT_PUBLIC_APP_URL}/profile/kyc` : "http://localhost:3000/profile/kyc",
+      url: `${getAppUrlSync()}/profile/kyc`,
     },
   });
 
@@ -758,7 +762,7 @@ export async function sendKycSubmissionConfirmation(data: {
     `,
     callToAction: {
       text: "View Verification Status",
-      url: process.env.NEXT_PUBLIC_APP_URL ? `${process.env.NEXT_PUBLIC_APP_URL}/profile/kyc` : "http://localhost:3000/profile/kyc",
+      url: `${getAppUrlSync()}/profile/kyc`,
     },
     noteText: "Notice: You do not need to resubmit while your verification is pending review.",
   });
@@ -792,7 +796,7 @@ export async function sendLoginAlertNotification(data: {
     `,
     callToAction: {
       text: "Security Dashboard",
-      url: process.env.NEXT_PUBLIC_APP_URL ? `${process.env.NEXT_PUBLIC_APP_URL}/profile` : "http://localhost:3000/profile",
+      url: `${getAppUrlSync()}/profile`,
     },
     noteText: "Never share your credentials with anyone. ETHSLTD support will never ask for your password.",
   });
@@ -853,7 +857,7 @@ export async function sendAdminEventNotification(data: {
       `,
       callToAction: {
         text: "Open Admin Console",
-        url: process.env.NEXT_PUBLIC_APP_URL ? `${process.env.NEXT_PUBLIC_APP_URL}/admin` : "http://localhost:3000/admin",
+        url: `${getAppUrlSync()}/admin`,
       },
     });
 
@@ -892,7 +896,7 @@ export async function sendTestEmail(toEmail: string, configId?: string) {
     `,
     callToAction: {
       text: "Open Admin Settings",
-      url: process.env.NEXT_PUBLIC_APP_URL ? `${process.env.NEXT_PUBLIC_APP_URL}/admin/email-settings` : "http://localhost:3000/admin/email-settings",
+      url: `${getAppUrlSync()}/admin/email-settings`,
     },
   });
 
@@ -936,7 +940,7 @@ export async function sendOrderExecutionNotification(data: {
     `,
     callToAction: {
       text: "View Positions & Trades",
-      url: process.env.NEXT_PUBLIC_APP_URL ? `${process.env.NEXT_PUBLIC_APP_URL}/trade` : "http://localhost:3000/trade",
+      url: `${getAppUrlSync()}/trade`,
     },
   });
 
@@ -1020,7 +1024,7 @@ export async function sendP2pOrderNotification(data: {
     `,
     callToAction: {
       text: "View P2P Order Details",
-      url: process.env.NEXT_PUBLIC_APP_URL ? `${process.env.NEXT_PUBLIC_APP_URL}/p2p/orders` : "http://localhost:3000/p2p/orders",
+      url: `${getAppUrlSync()}/p2p/orders`,
     },
   });
 
@@ -1055,7 +1059,7 @@ export async function sendSupportNotification(data: {
     `,
     callToAction: {
       text: "View Support Desk",
-      url: process.env.NEXT_PUBLIC_APP_URL ? `${process.env.NEXT_PUBLIC_APP_URL}/support` : "http://localhost:3000/support",
+      url: `${getAppUrlSync()}/support`,
     },
   });
 
@@ -1083,7 +1087,7 @@ export async function sendComplianceNotification(data: {
     `,
     callToAction: {
       text: "Access Compliance Portal",
-      url: process.env.NEXT_PUBLIC_APP_URL ? `${process.env.NEXT_PUBLIC_APP_URL}/compliance` : "http://localhost:3000/compliance",
+      url: `${getAppUrlSync()}/compliance`,
     },
   });
 
@@ -1115,7 +1119,7 @@ export async function sendMarketAlertNotification(data: {
     `,
     callToAction: {
       text: "Open Trading Chart",
-      url: process.env.NEXT_PUBLIC_APP_URL ? `${process.env.NEXT_PUBLIC_APP_URL}/trade` : "http://localhost:3000/trade",
+      url: `${getAppUrlSync()}/trade`,
     },
   });
 
@@ -1139,7 +1143,7 @@ export async function sendAccountNotification(data: {
     contentHtml: `<p>${data.message}</p>`,
     callToAction: {
       text: "Account Settings",
-      url: process.env.NEXT_PUBLIC_APP_URL ? `${process.env.NEXT_PUBLIC_APP_URL}/profile` : "http://localhost:3000/profile",
+      url: `${getAppUrlSync()}/profile`,
     },
   });
 
@@ -1163,7 +1167,7 @@ export async function sendUpdateNotification(data: {
     contentHtml: `<p>${data.message}</p>`,
     callToAction: {
       text: "Platform Announcements",
-      url: process.env.NEXT_PUBLIC_APP_URL ? `${process.env.NEXT_PUBLIC_APP_URL}/announcements` : "http://localhost:3000/announcements",
+      url: `${getAppUrlSync()}/announcements`,
     },
   });
 
@@ -1194,7 +1198,7 @@ export async function sendRewardNotification(data: {
     `,
     callToAction: {
       text: "Check Rewards Balance",
-      url: process.env.NEXT_PUBLIC_APP_URL ? `${process.env.NEXT_PUBLIC_APP_URL}/assets` : "http://localhost:3000/assets",
+      url: `${getAppUrlSync()}/assets`,
     },
   });
 
@@ -1251,7 +1255,7 @@ export async function sendApiSecurityNotification(data: {
     `,
     callToAction: {
       text: "Manage API Keys",
-      url: process.env.NEXT_PUBLIC_APP_URL ? `${process.env.NEXT_PUBLIC_APP_URL}/security/api-keys` : "http://localhost:3000/security/api-keys",
+      url: `${getAppUrlSync()}/security/api-keys`,
     },
   });
 

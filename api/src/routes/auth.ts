@@ -22,6 +22,21 @@ async function hashPassword(password: string) {
   return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
+export function getFrontendBaseUrl(c: { env: Bindings; req: { header: (name: string) => string | undefined } }): string {
+  const envUrl = (c.env as any).APP_URL || (c.env as any).FRONTEND_URL;
+  if (envUrl && typeof envUrl === 'string' && envUrl.startsWith('http')) {
+    return envUrl.replace(/\/+$/, '');
+  }
+  const origin = c.req.header('origin');
+  if (origin && origin.startsWith('http://localhost')) {
+    return origin.replace(/\/+$/, '');
+  }
+  if (origin && !origin.includes('workers.dev') && origin.startsWith('https://')) {
+    return origin.replace(/\/+$/, '');
+  }
+  return 'https://ethsltd.com';
+}
+
 authRoutes.post('/register', async (c) => {
   try {
     const body = await c.req.json();
@@ -127,7 +142,7 @@ authRoutes.post('/register', async (c) => {
 
     // Send Single Verification OTP Email (No marketing spam or welcome blast until verified)
     const emailService = new EmailService(c.env, db);
-    const appUrl = c.req.header('origin') || `https://${c.req.header('host')}`;
+    const appUrl = getFrontendBaseUrl(c);
 
     c.executionCtx.waitUntil((async () => {
       try {
@@ -269,7 +284,7 @@ authRoutes.post('/verify-email/request-otp', jwtMiddleware, async (c) => {
     
     c.executionCtx.waitUntil((async () => {
       try {
-        const appUrl = c.req.header('origin') || `https://${c.req.header('host')}`;
+        const appUrl = getFrontendBaseUrl(c);
         await emailService.sendVerificationOTP(user.email, otp, appUrl);
       } catch (e) {
         console.error("Background OTP email failed", e);
@@ -460,7 +475,7 @@ authRoutes.post('/forgot-password', async (c) => {
     const resetToken = await sign({ purpose: 'password_reset', userId: user.id, exp: Math.floor(Date.now() / 1000) + (15 * 60) }, c.env.JWT_SECRET || 'super_secret_jwt_key_replace_me_in_prod');
     
     const emailService = new EmailService(c.env, db);
-    const appUrl = c.req.header('origin') || `https://${c.req.header('host')}`;
+    const appUrl = getFrontendBaseUrl(c);
     
     c.executionCtx.waitUntil((async () => {
       try {

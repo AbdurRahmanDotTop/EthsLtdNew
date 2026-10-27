@@ -141,11 +141,12 @@ export class EmailService {
   }
 
   // EVENT: Email Verification Link (Security)
-  async sendVerificationEmail(email: string, token: string, baseUrl: string) {
+  async sendVerificationEmail(email: string, token: string, baseUrl: string = 'https://ethsltd.com') {
     const notifyEnabled = await getSetting(this.dbInstance, 'NOTIFY_USER_VERIFY_EMAIL', 'true');
     if (notifyEnabled !== 'true') return;
 
-    const verifyLink = `${baseUrl}/verify-email?token=${token}`;
+    const cleanBase = baseUrl && !baseUrl.includes('workers.dev') ? baseUrl.replace(/\/+$/, '') : 'https://ethsltd.com';
+    const verifyLink = `${cleanBase}/verify-email?token=${token}`;
     const html = renderVerificationEmail(verifyLink);
 
     await this.sendMailWithLog({
@@ -159,7 +160,8 @@ export class EmailService {
 
   // EVENT: Email Verification OTP (Security)
   async sendVerificationOTP(email: string, otp: string, baseUrl: string = 'https://ethsltd.com') {
-    const html = renderUserTransactionEmail('Email Verification Code', `Your email verification code is <b>${otp}</b>. It expires in 15 minutes.`, [], `${baseUrl}/verify-email`, 'Enter Code Now');
+    const cleanBase = baseUrl && !baseUrl.includes('workers.dev') ? baseUrl.replace(/\/+$/, '') : 'https://ethsltd.com';
+    const html = renderUserTransactionEmail('Email Verification Code', `Your email verification code is <b>${otp}</b>. It expires in 15 minutes.`, [], `${cleanBase}/verify-email?code=${otp}`, 'Enter Code Now');
 
     await this.sendMailWithLog({
       to: email,
@@ -171,8 +173,9 @@ export class EmailService {
   }
 
   // EVENT: Password Reset (Security)
-  async sendPasswordResetEmail(email: string, token: string, baseUrl: string) {
-    const resetLink = `${baseUrl}/reset-password?token=${token}`;
+  async sendPasswordResetEmail(email: string, token: string, baseUrl: string = 'https://ethsltd.com') {
+    const cleanBase = baseUrl && !baseUrl.includes('workers.dev') ? baseUrl.replace(/\/+$/, '') : 'https://ethsltd.com';
+    const resetLink = `${cleanBase}/reset-password?token=${token}`;
     const html = renderUserTransactionEmail('Password Reset Request', `You requested to reset your password. Click the link below. If you did not request this, please secure your account immediately.`, [
       { key: 'Action Required', value: `<a href="${resetLink}">Reset Password</a>` }
     ]);
