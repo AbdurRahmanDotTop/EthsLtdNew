@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --webpack",
     "build": "next build --webpack",
     "build:worker": "node scripts/patch-next.js && opennextjs-cloudflare build && node scripts/patch-worker.js",
     "deploy": "opennextjs-cloudflare deploy",
