@@ -368,6 +368,31 @@ export async function getHomepageMarkets() {
 
   isFetchingHomepageMarkets = true;
   try {
+    let db: any = null;
+    try {
+      const { getCloudflareContext } = await import("@opennextjs/cloudflare");
+      const cf = getCloudflareContext({ async: false });
+      db = (cf as any)?.env?.DB;
+    } catch {}
+    if (!db) {
+      const cfGlobal = (globalThis as any)[Symbol.for("__cloudflare-context__")];
+      db = cfGlobal?.env?.DB || (globalThis as any).DB;
+    }
+
+    if (db && typeof db.prepare === "function") {
+      const [topRes, homeRes] = await Promise.all([
+        db.prepare("SELECT * FROM Market WHERE isTopTicker = 1 AND status = 'ACTIVE' ORDER BY displayOrder ASC LIMIT 3").all(),
+        db.prepare("SELECT * FROM Market WHERE isListedOnHome = 1 AND status = 'ACTIVE' ORDER BY displayOrder ASC").all(),
+      ]);
+      const topTickers = topRes.results || [];
+      const homeListings = homeRes.results || [];
+      if (topTickers.length > 0 || homeListings.length > 0) {
+        cachedHomepageMarkets = { topTickers, homeListings };
+        lastHomepageFetch = now;
+        return cachedHomepageMarkets;
+      }
+    }
+
     const [topTickers, homeListings] = await Promise.all([
       prisma.market.findMany({
         where: { isTopTicker: true, status: "ACTIVE" },

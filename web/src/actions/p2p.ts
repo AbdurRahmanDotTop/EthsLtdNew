@@ -26,6 +26,18 @@ export async function invalidateP2pAdsCache() {
   cachedP2pAdsMap.clear();
 }
 
+async function getD1Db(): Promise<any | null> {
+  try {
+    const { getCloudflareContext } = await import("@opennextjs/cloudflare");
+    const cf = getCloudflareContext({ async: false });
+    if ((cf as any)?.env?.DB) return (cf as any).env.DB;
+  } catch {}
+  const cfGlobal = (globalThis as any)[Symbol.for("__cloudflare-context__")];
+  if (cfGlobal?.env?.DB) return cfGlobal.env.DB;
+  if ((globalThis as any).DB) return (globalThis as any).DB;
+  return null;
+}
+
 export async function getP2pAds(params?: {
   side?: string;
   asset?: string;
@@ -44,6 +56,94 @@ export async function getP2pAds(params?: {
   isFetchingP2pAdsMap.add(cacheKey);
 
   try {
+    // Zero-WASM Fast Path for Cloudflare Workers: Direct native D1 queries (< 1ms CPU)
+    const db = await getD1Db();
+    if (db && typeof db.prepare === "function") {
+      let sql = `
+        SELECT 
+          a.id, a.userId, a.asset, a.fiat, a.type, a.price, a.totalAmount, a.availableAmount,
+          a.minLimit, a.maxLimit, a.paymentWindow, a.paymentMethods, a.terms, a.autoReply,
+          a.status, a.createdAt, a.updatedAt,
+          u.id as u_id, u.uid as u_uid, u.name as u_name, u.email as u_email,
+          u.merchantTier as u_merchantTier, u.p2pTotalOrders as u_p2pTotalOrders,
+          u.p2pCompletedOrders as u_p2pCompletedOrders, u.p2pCompletionRate as u_p2pCompletionRate,
+          u.p2pPositiveFeedback as u_p2pPositiveFeedback, u.p2pNegativeFeedback as u_p2pNegativeFeedback,
+          u.isKycVerified as u_isKycVerified
+        FROM P2pAd a
+        LEFT JOIN User u ON u.id = a.userId
+        WHERE a.status = 'ACTIVE'
+      `;
+      const binds: any[] = [];
+      if (params?.side && params.side !== "all") {
+        sql += ` AND a.type = ?`;
+        binds.push(params.side.toUpperCase());
+      }
+      if (params?.asset && params.asset !== "all") {
+        sql += ` AND a.asset = ?`;
+        binds.push(params.asset.toUpperCase());
+      }
+      if (params?.fiat && params.fiat !== "all") {
+        sql += ` AND a.fiat = ?`;
+        binds.push(params.fiat.toUpperCase());
+      }
+      sql += ` ORDER BY a.createdAt DESC`;
+
+      const stmt = binds.length > 0 ? db.prepare(sql).bind(...binds) : db.prepare(sql);
+      const rowsRes = await stmt.all();
+      const rows = rowsRes.results || [];
+
+      let result = rows.map((ad: any) => ({
+        id: ad.id,
+        userId: ad.userId,
+        asset: ad.asset,
+        fiat: ad.fiat,
+        side: ad.type,
+        fiatCurrency: ad.fiat,
+        price: parseFloat(ad.price || "0"),
+        totalAmount: parseFloat(ad.totalAmount || "0"),
+        availableAmount: parseFloat(ad.availableAmount || "0"),
+        minLimit: parseFloat(ad.minLimit || "0"),
+        maxLimit: parseFloat(ad.maxLimit || "0"),
+        paymentTimeLimit: ad.paymentWindow,
+        paymentMethods: typeof ad.paymentMethods === "string" ? JSON.parse(ad.paymentMethods || "[]") : (ad.paymentMethods || []),
+        terms: ad.terms,
+        autoReply: ad.autoReply,
+        status: ad.status,
+        createdAt: ad.createdAt,
+        updatedAt: ad.updatedAt,
+        user: {
+          id: ad.u_id || ad.userId,
+          uid: ad.u_uid,
+          name: ad.u_name,
+          email: ad.u_email,
+          merchantTier: ad.u_merchantTier,
+          p2pTotalOrders: ad.u_p2pTotalOrders ?? 0,
+          p2pCompletedOrders: ad.u_p2pCompletedOrders ?? 0,
+          p2pCompletionRate: ad.u_p2pCompletionRate ?? 100,
+          p2pPositiveFeedback: ad.u_p2pPositiveFeedback ?? 0,
+          p2pNegativeFeedback: ad.u_p2pNegativeFeedback ?? 0,
+          isKycVerified: Boolean(ad.u_isKycVerified),
+        }
+      }));
+
+      if (params?.amount && params.amount > 0) {
+        result = result.filter(
+          (ad: any) => params.amount! >= ad.minLimit && params.amount! <= ad.maxLimit
+        );
+      }
+
+      if (params?.side?.toUpperCase() === "BUY") {
+        result.sort((a: any, b: any) => b.price - a.price);
+      } else {
+        result.sort((a: any, b: any) => a.price - b.price);
+      }
+
+      if (result) {
+        cachedP2pAdsMap.set(cacheKey, { data: result, timestamp: Date.now() });
+      }
+      return { success: true, data: result };
+    }
+
     const where: any = {
       status: "ACTIVE",
     };

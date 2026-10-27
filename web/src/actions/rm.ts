@@ -148,6 +148,18 @@ export async function invalidatePublicRmsCache() {
   lastPublicRmsFetch = 0;
 }
 
+async function getD1Db(): Promise<any | null> {
+  try {
+    const { getCloudflareContext } = await import("@opennextjs/cloudflare");
+    const cf = getCloudflareContext({ async: false });
+    if ((cf as any)?.env?.DB) return (cf as any).env.DB;
+  } catch {}
+  const cfGlobal = (globalThis as any)[Symbol.for("__cloudflare-context__")];
+  if (cfGlobal?.env?.DB) return cfGlobal.env.DB;
+  if ((globalThis as any).DB) return (globalThis as any).DB;
+  return null;
+}
+
 export async function getAvailableRms(params?: { search?: string; service?: string }) {
   try {
     const session = await getSession();
@@ -156,6 +168,89 @@ export async function getAvailableRms(params?: { search?: string; service?: stri
 
     if (isPublicDefaultQuery && cachedPublicRms.length > 0 && Date.now() - lastPublicRmsFetch < PUBLIC_RMS_CACHE_TTL) {
       return { success: true, rms: cachedPublicRms, cached: true };
+    }
+
+    // Zero-WASM Fast Path for Cloudflare Workers: Direct native D1 queries (< 1ms CPU)
+    const db = await getD1Db();
+    if (db && typeof db.prepare === "function") {
+      let sql = `
+        SELECT 
+          u.id, u.uid, u.name, u.email, u.avatarUrl,
+          p.rmCode, p.designation, p.department, p.bio, p.specialties,
+          p.rating, p.totalRatings, p.experienceYears, p.workingHours, p.phone, p.maxClients,
+          (SELECT COUNT(*) FROM RmConnection c WHERE c.rmId = u.id AND c.status = 'ACTIVE') as activeClientsCount
+        FROM User u
+        LEFT JOIN RmProfile p ON p.userId = u.id
+        WHERE u.role = 'RM' AND u.status = 'ACTIVE'
+      `;
+      const binds: any[] = [];
+      if (params?.search) {
+        const q = `%${params.search.toLowerCase()}%`;
+        const numQ = Number(params.search);
+        if (!isNaN(numQ) && numQ > 0) {
+          sql += ` AND (LOWER(u.name) LIKE ? OR LOWER(u.email) LIKE ? OR LOWER(p.rmCode) LIKE ? OR LOWER(p.designation) LIKE ? OR LOWER(p.specialties) LIKE ? OR u.uid = ?)`;
+          binds.push(q, q, q, q, q, numQ);
+        } else {
+          sql += ` AND (LOWER(u.name) LIKE ? OR LOWER(u.email) LIKE ? OR LOWER(p.rmCode) LIKE ? OR LOWER(p.designation) LIKE ? OR LOWER(p.specialties) LIKE ?)`;
+          binds.push(q, q, q, q, q);
+        }
+      }
+      sql += ` ORDER BY u.createdAt DESC`;
+
+      const stmt = binds.length > 0 ? db.prepare(sql).bind(...binds) : db.prepare(sql);
+      const rowsRes = await stmt.all();
+      const rows = rowsRes.results || [];
+
+      let userConnections: Record<string, any> = {};
+      let userReviews: Record<string, any> = {};
+
+      if (currentUserId) {
+        const [connsRes, revsRes] = await Promise.all([
+          db.prepare("SELECT rmId, id as connectionId, status, requestedAt, activatedAt FROM RmConnection WHERE userId = ?").bind(currentUserId).all(),
+          db.prepare("SELECT rmId, id, rating, comment, createdAt FROM RmReview WHERE userId = ?").bind(currentUserId).all(),
+        ]);
+        for (const conn of (connsRes.results || [])) {
+          userConnections[conn.rmId] = conn;
+        }
+        for (const rev of (revsRes.results || [])) {
+          userReviews[rev.rmId] = rev;
+        }
+      }
+
+      const mapped = rows.map((rm: any) => {
+        const userConn = userConnections[rm.id] || null;
+        const userRev = userReviews[rm.id] || null;
+        const totalRatings = rm.totalRatings || 0;
+        const actualRating = totalRatings > 0 ? Number(rm.rating || 0) : 0;
+        return {
+          id: rm.id,
+          uid: rm.uid,
+          name: rm.name || "Relationship Manager",
+          email: rm.email,
+          avatarUrl: rm.avatarUrl || null,
+          rmCode: sanitizeRmCode(rm.rmCode, rm.uid),
+          designation: rm.designation || "Senior Crypto Relationship Manager",
+          department: rm.department || "Private Wealth & Institutional Trading",
+          bio: rm.bio || "Experienced digital asset advisor.",
+          specialties: rm.specialties || "Perpetual Futures, Spot Hedging, Options",
+          rating: actualRating,
+          totalRatings,
+          experienceYears: rm.experienceYears || 0,
+          workingHours: rm.workingHours || "09:00 - 21:00 UTC",
+          phone: rm.phone || null,
+          activeClientsCount: Number(rm.activeClientsCount || 0),
+          maxClients: rm.maxClients || 50,
+          userRelationship: userConn,
+          userReview: userRev,
+        };
+      });
+
+      if (isPublicDefaultQuery && mapped.length > 0) {
+        cachedPublicRms = mapped;
+        lastPublicRmsFetch = Date.now();
+      }
+
+      return { success: true, rms: mapped };
     }
 
     const where: any = {

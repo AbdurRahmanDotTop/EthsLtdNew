@@ -556,6 +556,41 @@ export async function getAuthSession() {
   const session = await getSession();
   if (!session) return null;
 
+  try {
+    let db: any = null;
+    try {
+      const { getCloudflareContext } = await import("@opennextjs/cloudflare");
+      const cf = getCloudflareContext({ async: false });
+      db = (cf as any)?.env?.DB;
+    } catch {}
+    if (!db) {
+      const cfGlobal = (globalThis as any)[Symbol.for("__cloudflare-context__")];
+      db = cfGlobal?.env?.DB || (globalThis as any).DB;
+    }
+
+    if (db && typeof db.prepare === "function") {
+      const row = await db.prepare(
+        "SELECT id, email, name, avatarUrl, phone, uid, role, status, isKycVerified, isEmailVerified FROM User WHERE id = ?"
+      ).bind(session.userId).first();
+
+      if (row) {
+        return {
+          id: row.id,
+          email: row.email,
+          name: row.name,
+          avatarUrl: row.avatarUrl,
+          phone: row.phone,
+          uid: row.uid,
+          role: row.role,
+          status: row.status,
+          isKycVerified: Boolean(row.isKycVerified),
+          isEmailVerified: Boolean(row.isEmailVerified),
+        };
+      }
+      return null;
+    }
+  } catch {}
+
   const user = await prisma.user.findUnique({
     where: { id: session.userId },
     select: {

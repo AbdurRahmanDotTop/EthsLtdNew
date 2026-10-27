@@ -52,35 +52,67 @@ async function refreshTickersInBackground() {
   isFetching = true;
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 2000);
+    const timeoutId = setTimeout(() => controller.abort(), 1800);
 
-    const symbolsParam = encodeURIComponent(JSON.stringify(TARGET_SYMBOLS_ARRAY));
-    const res = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbols=${symbolsParam}`, {
-      signal: controller.signal,
-      cache: "no-store",
-    });
-
-    clearTimeout(timeoutId);
-
-    if (res.ok) {
-      const data = await res.json();
-      if (Array.isArray(data) && data.length > 0) {
-        const fetchedMap: Record<string, { price: string; changePercent: string; high: string; low: string }> = { ...cachedTickers };
-        for (const item of data) {
-          if (!item || !item.symbol) continue;
-          const pctVal = parseFloat(item.priceChangePercent || "0");
-          const formattedPct = (pctVal >= 0 ? "+" : "") + pctVal.toFixed(2) + "%";
-          fetchedMap[item.symbol] = {
-            price: item.lastPrice || "0",
-            changePercent: formattedPct,
-            high: item.highPrice || "0",
-            low: item.lowPrice || "0",
-          };
+    // Primary: MEXC 24hr ticker (reliable from Cloudflare Workers without IP blocks)
+    let fetched = false;
+    try {
+      const res = await fetch("https://api.mexc.com/api/v3/ticker/24hr", {
+        signal: controller.signal,
+        cache: "no-store",
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) {
+          const fetchedMap: Record<string, { price: string; changePercent: string; high: string; low: string }> = { ...cachedTickers };
+          for (const item of data) {
+            if (!item || !item.symbol || !TARGET_SYMBOLS.has(item.symbol)) continue;
+            const pctVal = parseFloat(item.priceChangePercent || "0") * (item.priceChangePercent?.includes(".") && parseFloat(item.priceChangePercent) < 1 && parseFloat(item.priceChangePercent) > -1 ? 100 : 1);
+            const formattedPct = (pctVal >= 0 ? "+" : "") + pctVal.toFixed(2) + "%";
+            fetchedMap[item.symbol] = {
+              price: item.lastPrice || "0",
+              changePercent: formattedPct,
+              high: item.highPrice || "0",
+              low: item.lowPrice || "0",
+            };
+          }
+          cachedTickers = fetchedMap;
+          lastFetchTime = Date.now();
+          fetched = true;
         }
-        cachedTickers = fetchedMap;
-        lastFetchTime = Date.now();
+      }
+    } catch {
+      // Fallback to Binance if MEXC fails
+    }
+
+    if (!fetched) {
+      const symbolsParam = encodeURIComponent(JSON.stringify(TARGET_SYMBOLS_ARRAY));
+      const res = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbols=${symbolsParam}`, {
+        signal: controller.signal,
+        cache: "no-store",
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) {
+          const fetchedMap: Record<string, { price: string; changePercent: string; high: string; low: string }> = { ...cachedTickers };
+          for (const item of data) {
+            if (!item || !item.symbol) continue;
+            const pctVal = parseFloat(item.priceChangePercent || "0");
+            const formattedPct = (pctVal >= 0 ? "+" : "") + pctVal.toFixed(2) + "%";
+            fetchedMap[item.symbol] = {
+              price: item.lastPrice || "0",
+              changePercent: formattedPct,
+              high: item.highPrice || "0",
+              low: item.lowPrice || "0",
+            };
+          }
+          cachedTickers = fetchedMap;
+          lastFetchTime = Date.now();
+        }
       }
     }
+    clearTimeout(timeoutId);
   } catch {
     // Suppress network/timeout errors - cached tickers ensure uninterrupted operation
   } finally {

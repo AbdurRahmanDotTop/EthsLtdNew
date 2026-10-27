@@ -103,6 +103,31 @@ export async function getHeroSlides() {
 
   isFetchingSlides = true;
   try {
+    let db: any = null;
+    try {
+      const { getCloudflareContext } = await import("@opennextjs/cloudflare");
+      const cf = getCloudflareContext({ async: false });
+      db = (cf as any)?.env?.DB;
+    } catch {}
+    if (!db) {
+      const cfGlobal = (globalThis as any)[Symbol.for("__cloudflare-context__")];
+      db = cfGlobal?.env?.DB || (globalThis as any).DB;
+    }
+
+    if (db && typeof db.prepare === "function") {
+      const rowsRes = await db.prepare("SELECT * FROM HeroSlide WHERE enabled = 1 ORDER BY displayOrder ASC").all();
+      const slides = (rowsRes.results || []).map((s: any) => ({
+        ...s,
+        enabled: Boolean(s.enabled),
+        btnEnabled: Boolean(s.btnEnabled),
+      }));
+      if (slides.length > 0) {
+        cachedHeroSlides = slides;
+        lastHeroSlidesFetch = now;
+        return slides;
+      }
+    }
+
     const slides = await prisma.heroSlide.findMany({
       where: { enabled: true },
       orderBy: { displayOrder: "asc" },

@@ -34,17 +34,26 @@ export function Header() {
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    let isMounted = true;
     const fetchSession = async () => {
+      // If user session is already verified and route is not auth entry/exit, avoid redundant server actions
+      if (user && pathname !== "/login" && pathname !== "/register") {
+        setLoading(false);
+        return;
+      }
       try {
         const sessionUser = await getAuthSession();
-        setUser(sessionUser);
+        if (isMounted) setUser(sessionUser);
       } catch {
-        setUser(null);
+        if (isMounted) setUser(null);
       } finally {
-        setLoading(false);
+        if (isMounted) setLoading(false);
       }
     };
     fetchSession();
+    return () => {
+      isMounted = false;
+    };
   }, [pathname]);
 
   // Close dropdown on click outside
@@ -94,7 +103,7 @@ export function Header() {
       <div className="max-w-screen-xl mx-auto px-4 h-16 flex items-center justify-between">
         {/* Brand Logo */}
         <div className="flex items-center gap-6">
-          <Link href="/" className="flex items-center gap-2 group transition-opacity hover:opacity-90">
+          <Link href="/" prefetch={false} className="flex items-center gap-2 group transition-opacity hover:opacity-90">
             <Logo className="h-9 sm:h-10 w-auto" priority />
           </Link>
 
@@ -106,6 +115,7 @@ export function Header() {
                 <Link
                   key={link.name}
                   href={link.href}
+                  prefetch={false}
                   className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                     isActive
                       ? "text-[#00A070] bg-[#00A070]/10"
@@ -287,12 +297,14 @@ export function Header() {
             <div className="flex items-center gap-2">
               <Link
                 href="/login"
+                prefetch={false}
                 className="px-3.5 py-1.5 rounded-xl text-xs font-semibold text-gray-300 hover:text-white hover:bg-white/5 transition-colors"
               >
                 Log In
               </Link>
               <Link
                 href="/register"
+                prefetch={false}
                 className="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-[#00A070] text-white hover:bg-[#008f64] shadow-md shadow-[#00A070]/20 transition-all"
               >
                 Sign Up

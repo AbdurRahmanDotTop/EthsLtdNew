@@ -31,6 +31,7 @@ export function BottomNavigation() {
           <Link
             key={item.name}
             href={item.href}
+            prefetch={false}
             className={cn(
               "flex flex-1 max-w-[64px] flex-col items-center justify-center gap-1 p-1 text-[10px] font-medium transition-colors",
               isActive ? "text-[#00A070]" : "text-gray-500 hover:text-gray-300"
