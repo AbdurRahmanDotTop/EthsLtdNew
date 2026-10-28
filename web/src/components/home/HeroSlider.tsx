@@ -118,14 +118,19 @@ export default function HeroSlider({
         }`}
         style={getBackgroundStyle(activeSlide)}
       >
-        {/* Glow / Ambient Visual Element */}
-        <div className="absolute right-0 top-0 w-36 sm:w-48 h-36 sm:h-48 opacity-40 pointer-events-none overflow-hidden">
-          <div
-            className="w-full h-full rounded-full blur-2xl transition-colors duration-700"
-            style={{
-              backgroundColor: activeSlide.badgeColor || "#00A070",
-            }}
-          />
+        {/* Seamless Ambient Radial Glow (Full-bleed, no box edges or clipping artifacts) */}
+        <div 
+          className="absolute inset-0 pointer-events-none transition-opacity duration-700"
+          style={{
+            background: `radial-gradient(circle at 85% 35%, ${activeSlide.badgeColor || "#00A070"}22 0%, transparent 60%)`,
+          }}
+        />
+
+        {/* Subtle Decorative Geometric Rings (Right side fintech watermark) */}
+        <div className="absolute -right-10 -top-10 w-64 h-64 pointer-events-none select-none opacity-[0.06] hidden sm:block">
+          <div className="w-full h-full rounded-full border border-white" />
+          <div className="absolute inset-8 rounded-full border border-white" />
+          <div className="absolute inset-16 rounded-full border border-white" />
         </div>
 
         {/* Content Area */}
