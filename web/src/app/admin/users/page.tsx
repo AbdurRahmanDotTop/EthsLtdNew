@@ -1001,21 +1001,21 @@ export default function AdminUsersPage() {
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight flex items-center gap-2">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 min-w-0">
+        <div className="min-w-0">
+          <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight flex items-center gap-2 flex-wrap">
             <span>User Management</span>
             <span className="text-xs font-mono font-bold bg-[#00A070]/10 text-[#00A070] px-2.5 py-0.5 rounded-full">
               {users.length} Total Accounts
             </span>
           </h1>
           <p className="text-xs text-gray-400 mt-1">
-            Complete A–Z administrator control: Profiles, Security, KYC, Wallets, RM & Cascase Deletion.
+            Complete A–Z administrator control: Profiles, Security, KYC, Wallets, RM & Cascade Deletion.
           </p>
         </div>
 
         {/* Search & Create Actions */}
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full sm:w-auto">
           <div className="relative w-full sm:w-64">
             <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
@@ -1029,7 +1029,7 @@ export default function AdminUsersPage() {
 
           <button
             onClick={() => setIsCreateModalOpen(true)}
-            className="px-4 py-2 rounded-xl bg-[#00A070] hover:bg-[#00b880] text-white font-bold text-xs flex items-center gap-1.5 shadow-lg shadow-[#00A070]/20 transition-all cursor-pointer shrink-0"
+            className="px-4 py-2 rounded-xl bg-[#00A070] hover:bg-[#00b880] text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-[#00A070]/20 transition-all cursor-pointer shrink-0"
           >
             <UserPlus className="w-4 h-4" />
             <span>Create User</span>
@@ -1038,7 +1038,7 @@ export default function AdminUsersPage() {
       </div>
 
       {/* Users Table */}
-      <div className="bg-[#161822] border border-white/5 rounded-2xl overflow-hidden shadow-xl">
+      <div className="bg-[#161822] border border-white/5 rounded-2xl overflow-hidden shadow-xl min-w-0">
         {isLoading ? (
           <div className="py-20 flex justify-center text-[#00A070]">
             <Loader2 className="w-6 h-6 animate-spin" />
@@ -1048,8 +1048,8 @@ export default function AdminUsersPage() {
             No users found matching your search.
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
+          <div className="overflow-x-auto w-full">
+            <table className="w-full min-w-[750px] text-left border-collapse">
               <thead>
                 <tr className="border-b border-white/5 text-[11px] font-bold text-gray-400 uppercase tracking-wider bg-[#10121A]">
                   <th className="px-5 py-3.5">User / UID</th>
@@ -1475,9 +1475,9 @@ export default function AdminUsersPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/85 backdrop-blur-md animate-in fade-in duration-150">
           <div className="relative w-full max-w-4xl bg-[#161822] border border-white/10 rounded-2xl shadow-2xl flex flex-col font-sans max-h-[92vh] overflow-hidden">
             {/* Modal Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-[#12141D] shrink-0">
-              <div className="flex items-center gap-3">
-                <div className="w-11 h-11 rounded-xl bg-[#00A070]/20 text-[#00A070] flex items-center justify-center font-bold text-base border border-[#00A070]/30 overflow-hidden">
+            <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-white/10 bg-[#12141D] shrink-0 min-w-0">
+              <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
+                <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-[#00A070]/20 text-[#00A070] flex items-center justify-center font-bold text-sm sm:text-base border border-[#00A070]/30 overflow-hidden shrink-0">
                   {profileModalUser.avatarUrl ? (
                     <img src={profileModalUser.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
                   ) : profileModalUser.name ? (
@@ -1486,21 +1486,21 @@ export default function AdminUsersPage() {
                     profileModalUser.email.charAt(0).toUpperCase()
                   )}
                 </div>
-                <div>
-                  <h3 className="text-base font-bold text-white flex items-center gap-2">
-                    <span>{profileModalUser.name || "Manage Profile"}</span>
-                    <span className="text-xs font-mono font-bold text-[#00A070] bg-[#00A070]/10 px-2 py-0.5 rounded border border-[#00A070]/20">
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm sm:text-base font-bold text-white flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                    <span className="truncate max-w-[130px] sm:max-w-none">{profileModalUser.name || "Manage Profile"}</span>
+                    <span className="text-[10px] sm:text-xs font-mono font-bold text-[#00A070] bg-[#00A070]/10 px-1.5 sm:px-2 py-0.5 rounded border border-[#00A070]/20 shrink-0">
                       UID: #{profileModalUser.uid}
                     </span>
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                    <span className={`text-[9px] sm:text-[10px] font-bold px-1.5 sm:px-2 py-0.5 rounded shrink-0 ${
                       profileModalUser.status === "ACTIVE"
                         ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
                         : "bg-amber-500/10 text-amber-400 border border-amber-500/20"
                     }`}>
                       {profileModalUser.status}
                     </span>
-                  </h3>
-                  <p className="text-xs text-gray-400 font-mono mt-0.5">{profileModalUser.email}</p>
+                  </div>
+                  <p className="text-[11px] sm:text-xs text-gray-400 font-mono mt-0.5 break-all truncate">{profileModalUser.email}</p>
                 </div>
               </div>
               <button
@@ -1508,7 +1508,8 @@ export default function AdminUsersPage() {
                   setProfileModalUser(null);
                   setFullUserDetails(null);
                 }}
-                className="text-gray-400 hover:text-white p-1.5 rounded-lg hover:bg-white/5 transition-colors cursor-pointer"
+                className="text-gray-400 hover:text-white p-1.5 rounded-lg hover:bg-white/5 transition-colors cursor-pointer shrink-0 ml-2"
+                aria-label="Close modal"
               >
                 <X className="w-5 h-5" />
               </button>

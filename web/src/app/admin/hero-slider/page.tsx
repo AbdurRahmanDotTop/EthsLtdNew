@@ -320,8 +320,8 @@ export default function AdminHeroSliderPage() {
             No slides configured. Click &ldquo;Add New Slide&rdquo; to create one.
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
+          <div className="overflow-x-auto w-full">
+            <table className="w-full min-w-[700px] text-left text-xs">
               <thead className="bg-[#1E202B] text-gray-400 uppercase font-mono text-[10px] border-b border-white/5">
                 <tr>
                   <th className="px-4 py-3 text-center w-16">Order</th>

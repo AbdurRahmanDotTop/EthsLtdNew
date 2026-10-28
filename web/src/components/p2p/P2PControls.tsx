@@ -38,10 +38,10 @@ export function P2PControls() {
   return (
     <div className="py-6 space-y-6">
       {/* Primary mode toggle */}
-      <div className="flex bg-[#161822] w-fit rounded-xl p-1 border border-white/10">
+      <div className="flex bg-[#161822] w-full sm:w-fit rounded-xl p-1 border border-white/10">
         <button
           onClick={() => setQuery({ side: "buy" })}
-          className={`px-8 py-2 rounded-lg text-sm font-bold transition-all cursor-pointer ${
+          className={`flex-1 sm:flex-initial px-4 sm:px-8 py-2 rounded-lg text-sm font-bold transition-all cursor-pointer text-center ${
             isBuy
               ? "bg-[#00A070] text-white shadow-md"
               : "text-gray-400 hover:text-white"
@@ -51,7 +51,7 @@ export function P2PControls() {
         </button>
         <button
           onClick={() => setQuery({ side: "sell" })}
-          className={`px-8 py-2 rounded-lg text-sm font-bold transition-all cursor-pointer ${
+          className={`flex-1 sm:flex-initial px-4 sm:px-8 py-2 rounded-lg text-sm font-bold transition-all cursor-pointer text-center ${
             !isBuy
               ? "bg-red-600 text-white shadow-md"
               : "text-gray-400 hover:text-white"

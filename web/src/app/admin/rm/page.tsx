@@ -416,8 +416,8 @@ export default function AdminRelationshipManagementPage() {
       {/* TAB 1: RM DIRECTORY */}
       {activeTab === "RMS" && (
         <div className="rounded-2xl bg-[#161822] border border-white/10 overflow-hidden shadow-xl">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
+          <div className="overflow-x-auto w-full">
+            <table className="w-full min-w-[750px] text-left text-xs">
               <thead className="bg-[#14151E] text-gray-400 border-b border-white/5">
                 <tr>
                   <th className="py-3 px-4 font-semibold">RM Name / Code</th>
@@ -530,8 +530,8 @@ export default function AdminRelationshipManagementPage() {
       {/* TAB 2: ALL CONNECTION REQUESTS */}
       {activeTab === "CONNECTIONS" && (
         <div className="rounded-2xl bg-[#161822] border border-white/10 overflow-hidden shadow-xl">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
+          <div className="overflow-x-auto w-full">
+            <table className="w-full min-w-[750px] text-left text-xs">
               <thead className="bg-[#14151E] text-gray-400 border-b border-white/5">
                 <tr>
                   <th className="py-3 px-4 font-semibold">User (Client)</th>
@@ -601,8 +601,8 @@ export default function AdminRelationshipManagementPage() {
       {/* TAB 3: ALL CONTRACTS */}
       {activeTab === "CONTRACTS" && (
         <div className="rounded-2xl bg-[#161822] border border-white/10 overflow-hidden shadow-xl">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
+          <div className="overflow-x-auto w-full">
+            <table className="w-full min-w-[750px] text-left text-xs">
               <thead className="bg-[#14151E] text-gray-400 border-b border-white/5">
                 <tr>
                   <th className="py-3 px-4 font-semibold">Contract Number</th>
@@ -818,8 +818,8 @@ export default function AdminRelationshipManagementPage() {
 
           {/* Reviews Table */}
           <div className="rounded-2xl bg-[#161822] border border-white/10 overflow-hidden shadow-xl">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
+            <div className="overflow-x-auto w-full">
+              <table className="w-full min-w-[750px] text-left text-xs">
                 <thead className="bg-[#14151E] text-gray-400 border-b border-white/5">
                   <tr>
                     <th className="py-3 px-4 font-semibold">Client (Investor)</th>

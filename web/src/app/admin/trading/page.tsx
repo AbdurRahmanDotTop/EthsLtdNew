@@ -63,11 +63,11 @@ export default function AdminTradingPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-bold text-white flex items-center gap-2">
-            <TrendingUp className="w-5 h-5 text-[#00A070]" />
-            Trading Oversight & Order History
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 min-w-0">
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold text-white flex items-center gap-2 flex-wrap">
+            <TrendingUp className="w-5 h-5 text-[#00A070] shrink-0" />
+            <span>Trading Oversight & Order History</span>
           </h1>
           <p className="text-xs text-gray-400 mt-0.5">
             Real-time monitoring of all user Perpetual Positions, Option Contracts, and settlement records
@@ -76,7 +76,7 @@ export default function AdminTradingPage() {
         <button
           onClick={fetchOrders}
           disabled={loading}
-          className="flex items-center gap-2 px-3.5 py-2 bg-[#1A1C24] border border-white/10 rounded-xl text-xs font-semibold text-gray-300 hover:text-white hover:bg-[#252836] transition-colors"
+          className="flex items-center gap-2 px-3.5 py-2 bg-[#1A1C24] border border-white/10 rounded-xl text-xs font-semibold text-gray-300 hover:text-white hover:bg-[#252836] transition-colors cursor-pointer shrink-0 self-start sm:self-auto"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
           <span>Refresh</span>
@@ -84,42 +84,42 @@ export default function AdminTradingPage() {
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-[#161822] border border-white/5 rounded-2xl p-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        <div className="bg-[#161822] border border-white/5 rounded-2xl p-4 min-w-0">
           <div className="flex items-center justify-between text-gray-400 text-xs mb-2">
             <span>Total Orders</span>
-            <Activity className="w-4 h-4 text-blue-400" />
+            <Activity className="w-4 h-4 text-blue-400 shrink-0" />
           </div>
-          <div className="text-xl font-bold font-mono text-white">{orders.length}</div>
+          <div className="text-xl font-bold font-mono text-white break-all">{orders.length}</div>
           <div className="text-[10px] text-gray-500 mt-1">Lifetime recorded</div>
         </div>
 
-        <div className="bg-[#161822] border border-white/5 rounded-2xl p-4">
+        <div className="bg-[#161822] border border-white/5 rounded-2xl p-4 min-w-0">
           <div className="flex items-center justify-between text-gray-400 text-xs mb-2">
             <span>Active Positions</span>
-            <Clock className="w-4 h-4 text-amber-400" />
+            <Clock className="w-4 h-4 text-amber-400 shrink-0" />
           </div>
-          <div className="text-xl font-bold font-mono text-amber-400">{activeCount}</div>
+          <div className="text-xl font-bold font-mono text-amber-400 break-all">{activeCount}</div>
           <div className="text-[10px] text-gray-500 mt-1">Open Perpetual & Options</div>
         </div>
 
-        <div className="bg-[#161822] border border-white/5 rounded-2xl p-4">
+        <div className="bg-[#161822] border border-white/5 rounded-2xl p-4 min-w-0">
           <div className="flex items-center justify-between text-gray-400 text-xs mb-2">
             <span>Total Margin Volume</span>
-            <DollarSign className="w-4 h-4 text-[#00A070]" />
+            <DollarSign className="w-4 h-4 text-[#00A070] shrink-0" />
           </div>
-          <div className="text-xl font-bold font-mono text-white">
+          <div className="text-xl font-bold font-mono text-white break-all">
             ${totalVolume.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
           <div className="text-[10px] text-gray-500 mt-1">Aggregated order values</div>
         </div>
 
-        <div className="bg-[#161822] border border-white/5 rounded-2xl p-4">
+        <div className="bg-[#161822] border border-white/5 rounded-2xl p-4 min-w-0">
           <div className="flex items-center justify-between text-gray-400 text-xs mb-2">
             <span>Realized PnL</span>
-            <Layers className="w-4 h-4 text-purple-400" />
+            <Layers className="w-4 h-4 text-purple-400 shrink-0" />
           </div>
-          <div className={`text-xl font-bold font-mono ${totalRealizedPnl >= 0 ? "text-[#00A070]" : "text-rose-400"}`}>
+          <div className={`text-xl font-bold font-mono break-all ${totalRealizedPnl >= 0 ? "text-[#00A070]" : "text-rose-400"}`}>
             {totalRealizedPnl >= 0 ? "+" : ""}${totalRealizedPnl.toFixed(2)}
           </div>
           <div className="text-[10px] text-gray-500 mt-1">Settled trader returns</div>
@@ -127,8 +127,8 @@ export default function AdminTradingPage() {
       </div>
 
       {/* Filter and Search Bar */}
-      <div className="bg-[#161822] border border-white/5 rounded-2xl p-4 flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
-        <div className="relative flex-1 max-w-md">
+      <div className="bg-[#161822] border border-white/5 rounded-2xl p-4 flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between min-w-0">
+        <div className="relative flex-1 max-w-md w-full">
           <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
           <input
             type="text"
@@ -141,12 +141,12 @@ export default function AdminTradingPage() {
 
         <div className="flex flex-wrap items-center gap-2">
           {/* Category Filter */}
-          <div className="flex bg-[#10121A] p-1 rounded-xl border border-white/5 text-xs">
+          <div className="flex bg-[#10121A] p-1 rounded-xl border border-white/5 text-xs flex-wrap">
             {["ALL", "PERPETUAL", "OPTION"].map((cat) => (
               <button
                 key={cat}
                 onClick={() => setCategoryFilter(cat)}
-                className={`px-3 py-1.5 rounded-lg font-semibold transition-all ${
+                className={`px-3 py-1.5 rounded-lg font-semibold transition-all cursor-pointer ${
                   categoryFilter === cat ? "bg-[#00A070] text-white" : "text-gray-400 hover:text-white"
                 }`}
               >
@@ -156,12 +156,12 @@ export default function AdminTradingPage() {
           </div>
 
           {/* Status Filter */}
-          <div className="flex bg-[#10121A] p-1 rounded-xl border border-white/5 text-xs">
+          <div className="flex bg-[#10121A] p-1 rounded-xl border border-white/5 text-xs flex-wrap">
             {["ALL", "ACTIVE", "CLOSED"].map((st) => (
               <button
                 key={st}
                 onClick={() => setStatusFilter(st)}
-                className={`px-3 py-1.5 rounded-lg font-semibold transition-all ${
+                className={`px-3 py-1.5 rounded-lg font-semibold transition-all cursor-pointer ${
                   statusFilter === st ? "bg-[#1E202B] text-white" : "text-gray-400 hover:text-white"
                 }`}
               >
@@ -173,9 +173,9 @@ export default function AdminTradingPage() {
       </div>
 
       {/* Orders Table */}
-      <div className="bg-[#161822] border border-white/5 rounded-2xl overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
+      <div className="bg-[#161822] border border-white/5 rounded-2xl overflow-hidden min-w-0">
+        <div className="overflow-x-auto w-full">
+          <table className="w-full min-w-[850px] text-left text-xs">
             <thead className="bg-[#12131C] text-gray-400 border-b border-white/5 uppercase font-mono text-[10px]">
               <tr>
                 <th className="px-5 py-3.5">Trader</th>

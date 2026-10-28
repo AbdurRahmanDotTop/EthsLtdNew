@@ -241,9 +241,9 @@ export default function RelationshipManagersPage() {
   });
 
   return (
-    <div className="min-h-screen py-8 px-4 sm:px-6 lg:px-8 space-y-8 animate-in fade-in duration-200">
+    <div className="max-w-7xl mx-auto min-h-screen py-6 sm:py-8 px-3 sm:px-6 lg:px-8 space-y-6 sm:space-y-8 animate-in fade-in duration-200">
       {/* Top Banner / Hero */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#161822] via-[#1A1C28] to-[#12131A] border border-white/10 p-6 sm:p-10 shadow-2xl">
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#161822] via-[#1A1C28] to-[#12131A] border border-white/10 p-4 sm:p-6 lg:p-10 shadow-2xl">
         <div className="relative z-10 max-w-3xl space-y-4">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#00A070]/15 border border-[#00A070]/30 text-[#00A070] text-xs font-bold uppercase tracking-wider">
             <Award className="w-3.5 h-3.5" />
@@ -289,7 +289,7 @@ export default function RelationshipManagersPage() {
         </div>
 
         {/* Ambient background glow */}
-        <div className="absolute top-0 right-0 w-96 h-96 bg-[#00A070]/10 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20" />
+        <div className="absolute top-0 right-0 w-64 sm:w-96 h-64 sm:h-96 bg-[#00A070]/10 rounded-full blur-3xl pointer-events-none" />
       </div>
 
       {/* Filter & Search Bar */}
@@ -360,7 +360,7 @@ export default function RelationshipManagersPage() {
                 {/* Card Top Accent */}
                 <div className="h-1.5 w-full bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500" />
 
-                <div className="p-6 space-y-4">
+                <div className="p-4 sm:p-6 space-y-4">
                   {/* Header: Photo, Name, RM ID */}
                   <div className="flex items-start gap-4">
                     <div className="relative shrink-0">

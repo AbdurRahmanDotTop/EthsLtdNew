@@ -383,13 +383,13 @@ function PostAdContent() {
 
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Step 1: Type and Asset */}
-        <div className="bg-[#161822] border border-white/10 rounded-2xl p-6 shadow-xl space-y-4">
+        <div className="bg-[#161822] border border-white/10 rounded-2xl p-4 sm:p-6 shadow-xl space-y-4">
           <h2 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
             <span className="w-5 h-5 rounded-full bg-[#00A070]/20 text-[#00A070] text-xs flex items-center justify-center font-bold">1</span>
             Ad Type & Target Asset
           </h2>
 
-          <div className="grid grid-cols-2 gap-3 pt-1">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
             <button
               type="button"
               disabled={isEditMode}
@@ -458,7 +458,7 @@ function PostAdContent() {
         </div>
 
         {/* Step 2: Pricing & Volume */}
-        <div className="bg-[#161822] border border-white/10 rounded-2xl p-6 shadow-xl space-y-4">
+        <div className="bg-[#161822] border border-white/10 rounded-2xl p-4 sm:p-6 shadow-xl space-y-4">
           <h2 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
             <span className="w-5 h-5 rounded-full bg-[#00A070]/20 text-[#00A070] text-xs flex items-center justify-center font-bold">2</span>
             Pricing & Trading Limits
@@ -565,8 +565,8 @@ function PostAdContent() {
         </div>
 
         {/* Step 3: Centralized Payment Methods & Dynamic Fields */}
-        <div className="bg-[#161822] border border-white/10 rounded-2xl p-6 shadow-xl space-y-4">
-          <div className="flex items-center justify-between">
+        <div className="bg-[#161822] border border-white/10 rounded-2xl p-4 sm:p-6 shadow-xl space-y-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
             <div>
               <h2 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
                 <span className="w-5 h-5 rounded-full bg-[#00A070]/20 text-[#00A070] text-xs flex items-center justify-center font-bold">3</span>
@@ -583,7 +583,7 @@ function PostAdContent() {
               variant="outline"
               size="sm"
               onClick={addPaymentMethod}
-              className="border-white/10 text-xs gap-1 hover:border-[#00A070]/40"
+              className="border-white/10 text-xs gap-1 hover:border-[#00A070]/40 shrink-0"
             >
               <Plus className="w-3.5 h-3.5" /> Add Method
             </Button>
@@ -783,7 +783,7 @@ function PostAdContent() {
         </div>
 
         {/* Step 4: Terms & Auto-Reply */}
-        <div className="bg-[#161822] border border-white/10 rounded-2xl p-6 shadow-xl space-y-4">
+        <div className="bg-[#161822] border border-white/10 rounded-2xl p-4 sm:p-6 shadow-xl space-y-4">
           <h2 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
             <span className="w-5 h-5 rounded-full bg-[#00A070]/20 text-[#00A070] text-xs flex items-center justify-center font-bold">4</span>
             Trade Terms & Automated Reply

@@ -149,11 +149,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
         {/* Top Navbar */}
-        <header className="h-16 shrink-0 bg-[#161822] border-b border-white/5 flex items-center justify-between px-4 lg:px-8 z-10">
-          <div className="flex items-center gap-3">
+        <header className="h-16 shrink-0 bg-[#161822] border-b border-white/5 flex items-center justify-between px-3 sm:px-4 lg:px-8 z-10 min-w-0">
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
             <button
               onClick={() => setSidebarOpen(true)}
-              className="lg:hidden p-2 rounded-lg bg-[#1E202B] text-gray-400 hover:text-white cursor-pointer"
+              className="lg:hidden p-2 rounded-lg bg-[#1E202B] text-gray-400 hover:text-white cursor-pointer shrink-0"
+              aria-label="Open sidebar"
             >
               <Menu className="w-5 h-5" />
             </button>
@@ -163,16 +164,16 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 bg-[#1E202B] border border-white/5 px-3 py-1.5 rounded-full text-xs">
-              <ShieldCheck className="w-4 h-4 text-[#00A070]" />
-              <span className="font-semibold text-white">Super Admin</span>
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+            <div className="flex items-center gap-1.5 sm:gap-2 bg-[#1E202B] border border-white/5 px-2.5 sm:px-3 py-1.5 rounded-full text-xs">
+              <ShieldCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#00A070] shrink-0" />
+              <span className="font-semibold text-white text-[11px] sm:text-xs">Super Admin</span>
             </div>
           </div>
         </header>
 
         {/* Page Content Viewport */}
-        <main className="flex-1 min-h-0 overflow-y-auto p-4 lg:p-8 bg-[#0F1015]">
+        <main className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-4 lg:p-8 bg-[#0F1015] w-full min-w-0">
           {children}
         </main>
       </div>

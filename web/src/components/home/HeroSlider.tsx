@@ -104,14 +104,14 @@ export default function HeroSlider({
 
   return (
     <div
-      className="relative px-4 py-2 select-none group"
+      className="relative px-3 sm:px-4 py-2 select-none group"
       onMouseEnter={() => setIsPaused(true)}
       onMouseLeave={() => setIsPaused(false)}
       onTouchStart={() => setIsPaused(true)}
       onTouchEnd={() => setIsPaused(false)}
     >
       <div
-        className={`relative w-full h-44 sm:h-48 md:h-52 rounded-2xl p-6 sm:p-7 overflow-hidden transition-all duration-700 ease-out shadow-xl flex flex-col justify-between ${
+        className={`relative w-full min-h-[170px] h-44 sm:h-48 md:h-52 rounded-2xl p-4 sm:p-6 sm:p-7 overflow-hidden transition-all duration-700 ease-out shadow-xl flex flex-col justify-between ${
           isGradientClass(activeSlide.bgValue)
             ? `bg-gradient-to-r ${activeSlide.bgValue}`
             : ""
@@ -119,9 +119,9 @@ export default function HeroSlider({
         style={getBackgroundStyle(activeSlide)}
       >
         {/* Glow / Ambient Visual Element */}
-        <div className="absolute right-0 top-0 w-48 h-48 opacity-40 translate-x-8 -translate-y-8 pointer-events-none">
+        <div className="absolute right-0 top-0 w-36 sm:w-48 h-36 sm:h-48 opacity-40 pointer-events-none overflow-hidden">
           <div
-            className="w-full h-full rounded-full blur-3xl transition-colors duration-700"
+            className="w-full h-full rounded-full blur-2xl transition-colors duration-700"
             style={{
               backgroundColor: activeSlide.badgeColor || "#00A070",
             }}

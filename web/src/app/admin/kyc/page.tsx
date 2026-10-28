@@ -255,11 +255,11 @@ export default function AdminKycPage() {
   return (
     <div className="space-y-6 max-w-7xl mx-auto font-sans p-2 sm:p-0">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight flex items-center gap-2">
-            <ShieldCheck className="w-6 h-6 text-[#00A070]" />
-            KYC Verification & Document Inspection
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 min-w-0">
+        <div className="min-w-0">
+          <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight flex items-center gap-2 flex-wrap">
+            <ShieldCheck className="w-6 h-6 text-[#00A070] shrink-0" />
+            <span>KYC Verification & Document Inspection</span>
           </h1>
           <p className="text-xs text-gray-400 mt-1">
             Review user identity documents (Images & PDFs) in high-resolution, verify extracted fields against records, and record compliance decisions with full audit trailing.
@@ -267,7 +267,7 @@ export default function AdminKycPage() {
         </div>
 
         {/* Filter Tabs */}
-        <div className="flex items-center gap-1.5 bg-[#161822] p-1 rounded-xl border border-white/5 overflow-x-auto">
+        <div className="flex items-center gap-1.5 bg-[#161822] p-1 rounded-xl border border-white/5 overflow-x-auto max-w-full">
           {(
             [
               { id: "ALL", label: "All" },
@@ -296,7 +296,7 @@ export default function AdminKycPage() {
       </div>
 
       {/* Search Input Bar */}
-      <div className="relative">
+      <div className="relative w-full">
         <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
         <input
           type="text"
@@ -308,7 +308,7 @@ export default function AdminKycPage() {
       </div>
 
       {/* KYC Table */}
-      <div className="bg-[#161822] border border-white/5 rounded-2xl overflow-hidden shadow-xl">
+      <div className="bg-[#161822] border border-white/5 rounded-2xl overflow-hidden shadow-xl min-w-0">
         {isLoading ? (
           <div className="py-20 flex justify-center text-[#00A070]">
             <Loader2 className="w-6 h-6 animate-spin" />
@@ -318,8 +318,8 @@ export default function AdminKycPage() {
             No KYC applications found matching current criteria.
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
+          <div className="overflow-x-auto w-full">
+            <table className="w-full min-w-[850px] text-left text-xs">
               <thead className="bg-[#1E202B] text-gray-400 uppercase font-mono text-[10px] border-b border-white/5">
                 <tr>
                   <th className="px-5 py-3.5">User Details</th>
@@ -338,11 +338,11 @@ export default function AdminKycPage() {
                     <tr key={item.id} className="hover:bg-white/[0.02] transition-colors">
                       {/* User Column */}
                       <td className="px-5 py-4">
-                        <div>
-                          <span className="font-bold text-white block">
+                        <div className="min-w-0 max-w-[200px]">
+                          <span className="font-bold text-white block break-words break-all">
                             {item.fullName || item.user?.name || item.user?.email}
                           </span>
-                          <span className="text-[11px] text-gray-400 font-mono block">
+                          <span className="text-[11px] text-gray-400 font-mono block break-words break-all">
                             {item.user?.email}
                           </span>
                           <span className="text-[10px] font-mono text-[#00A070]">

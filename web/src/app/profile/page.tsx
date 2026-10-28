@@ -154,26 +154,26 @@ export default function UserProfilePage() {
   const isAdmin = user.role === "ADMIN" || user.role === "SUPER_ADMIN";
 
   return (
-    <div className="space-y-8 py-6 px-4 max-w-5xl mx-auto">
+    <div className="space-y-6 sm:space-y-8 py-4 sm:py-6 px-3 sm:px-4 max-w-5xl mx-auto w-full min-w-0">
       {/* Page Title & Breadcrumb */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-white/5">
-        <div>
-          <h1 className="text-2xl font-bold text-white tracking-tight flex items-center gap-2">
-            <User className="w-6 h-6 text-[#00A070]" />
-            User Account & Profile
+        <div className="min-w-0">
+          <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight flex items-center gap-2">
+            <User className="w-5 h-5 sm:w-6 sm:h-6 text-[#00A070] shrink-0" />
+            <span>User Account & Profile</span>
           </h1>
           <p className="text-xs text-gray-400 mt-1">
             Manage your personal credentials, verification status, security preferences, and financial accounts
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
           {isAdmin && (
             <Link
               href="/admin"
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-bold hover:bg-amber-500/20 transition-colors"
             >
-              <Shield className="w-3.5 h-3.5" />
+              <Shield className="w-3.5 h-3.5 shrink-0" />
               <span>Admin Console</span>
             </Link>
           )}
@@ -182,39 +182,39 @@ export default function UserProfilePage() {
             onClick={handleLogout}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs font-bold hover:bg-rose-500/20 transition-colors"
           >
-            <LogOut className="w-3.5 h-3.5" />
+            <LogOut className="w-3.5 h-3.5 shrink-0" />
             <span>Sign Out</span>
           </button>
         </div>
       </div>
 
       {/* Main Profile Header Card */}
-      <div className="bg-[#161822] border border-white/10 rounded-2xl p-6 sm:p-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 shadow-xl">
-        <div className="flex items-center gap-5">
+      <div className="bg-[#161822] border border-white/10 rounded-2xl p-4 sm:p-6 md:p-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-5 md:gap-6 shadow-xl min-w-0 w-full overflow-hidden">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-5 min-w-0 w-full">
           {/* Avatar with fallback */}
-          <div className="w-20 h-20 rounded-2xl bg-[#1E202B] border-2 border-[#00A070]/40 flex items-center justify-center overflow-hidden shrink-0 shadow-lg relative group">
+          <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-[#1E202B] border-2 border-[#00A070]/40 flex items-center justify-center overflow-hidden shrink-0 shadow-lg relative group">
             {avatarUrl ? (
               <img src={avatarUrl} alt={user.name || "Avatar"} className="w-full h-full object-cover" />
             ) : (
-              <span className="text-3xl font-extrabold text-[#00A070] font-mono">
+              <span className="text-2xl sm:text-3xl font-extrabold text-[#00A070] font-mono">
                 {user.name?.charAt(0)?.toUpperCase() || user.email?.charAt(0)?.toUpperCase()}
               </span>
             )}
           </div>
 
-          <div>
+          <div className="min-w-0 flex-1 w-full">
             <div className="flex items-center gap-2 flex-wrap">
-              <h2 className="text-xl font-bold text-white">{user.name || "Trader Account"}</h2>
-              <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-[#00A070]/15 text-[#00A070] border border-[#00A070]/30">
+              <h2 className="text-lg sm:text-xl font-bold text-white break-words break-all">{user.name || "Trader Account"}</h2>
+              <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-[#00A070]/15 text-[#00A070] border border-[#00A070]/30 shrink-0">
                 {user.role}
               </span>
-              <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-blue-500/15 text-blue-400 border border-blue-500/30">
+              <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-blue-500/15 text-blue-400 border border-blue-500/30 shrink-0">
                 {user.status}
               </span>
             </div>
 
-            <p className="text-xs text-gray-400 font-mono mt-1">{user.email}</p>
-            <div className="flex items-center gap-4 text-[11px] text-gray-500 font-mono mt-2">
+            <p className="text-xs text-gray-400 font-mono mt-1 break-words break-all">{user.email}</p>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-gray-500 font-mono mt-2">
               <span>UID: <strong className="text-white">{user.uid}</strong></span>
               <span>Joined: {new Date(user.createdAt).toLocaleDateString()}</span>
             </div>
@@ -222,7 +222,7 @@ export default function UserProfilePage() {
         </div>
 
         {/* Verification Status Pill */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full md:w-auto">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full md:w-auto shrink-0">
           <Link
             href="/profile/kyc"
             className={`flex items-center justify-between sm:justify-start gap-2.5 px-4 py-2.5 rounded-xl border text-xs font-semibold transition-all ${
@@ -233,13 +233,13 @@ export default function UserProfilePage() {
           >
             <div className="flex items-center gap-2">
               {user.isKycVerified ? (
-                <CheckCircle2 className="w-4 h-4 text-[#00A070]" />
+                <CheckCircle2 className="w-4 h-4 text-[#00A070] shrink-0" />
               ) : (
-                <Clock className="w-4 h-4 text-amber-400" />
+                <Clock className="w-4 h-4 text-amber-400 shrink-0" />
               )}
-              <span>{user.isKycVerified ? "Identity Verified (KYC Passed)" : "KYC Verification Required"}</span>
+              <span className="truncate">{user.isKycVerified ? "Identity Verified (KYC Passed)" : "KYC Verification Required"}</span>
             </div>
-            <ChevronRight className="w-3.5 h-3.5 ml-1" />
+            <ChevronRight className="w-3.5 h-3.5 ml-1 shrink-0" />
           </Link>
         </div>
       </div>
@@ -290,13 +290,13 @@ export default function UserProfilePage() {
                 <label className="block text-xs font-semibold text-gray-300 mb-2">
                   Select Profile Avatar Preset
                 </label>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap">
                   {AVATAR_PRESETS.map((preset, idx) => (
                     <button
                       type="button"
                       key={idx}
                       onClick={() => setAvatarUrl(preset)}
-                      className={`w-11 h-11 rounded-xl overflow-hidden border-2 transition-all ${
+                      className={`w-10 h-10 sm:w-11 sm:h-11 rounded-xl overflow-hidden border-2 transition-all ${
                         avatarUrl === preset
                           ? "border-[#00A070] scale-105 shadow-md shadow-[#00A070]/30"
                           : "border-white/10 opacity-70 hover:opacity-100"
@@ -356,25 +356,25 @@ export default function UserProfilePage() {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="p-4 bg-[#10121A] rounded-xl border border-white/5">
+              <div className="p-4 bg-[#10121A] rounded-xl border border-white/5 min-w-0">
                 <span className="text-[11px] text-gray-400">Available USDT</span>
-                <div className="text-lg font-bold font-mono text-white mt-1">
+                <div className="text-lg font-bold font-mono text-white mt-1 break-words break-all">
                   ${totalBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                 </div>
                 <span className="text-[10px] text-gray-500">Spot Currency Account</span>
               </div>
 
-              <div className="p-4 bg-[#10121A] rounded-xl border border-white/5">
+              <div className="p-4 bg-[#10121A] rounded-xl border border-white/5 min-w-0">
                 <span className="text-[11px] text-gray-400">Linked Bank Card</span>
                 <div className="text-sm font-bold text-white mt-1 truncate">
                   {user.bankCards?.[0]?.bankName || "None Linked"}
                 </div>
-                <span className="text-[10px] text-gray-500 font-mono">
+                <span className="text-[10px] text-gray-500 font-mono break-all">
                   {user.bankCards?.[0]?.iban ? `IBAN: ••••${user.bankCards[0].iban.slice(-4)}` : "Required for withdraw"}
                 </span>
               </div>
 
-              <div className="p-4 bg-[#10121A] rounded-xl border border-white/5">
+              <div className="p-4 bg-[#10121A] rounded-xl border border-white/5 min-w-0">
                 <span className="text-[11px] text-gray-400">Fund Password PIN</span>
                 <div className="text-sm font-bold text-white mt-1">
                   {user.transactionPin ? "Configured ✓" : "Not Set"}

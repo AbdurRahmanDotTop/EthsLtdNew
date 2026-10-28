@@ -310,8 +310,8 @@ export default function AdminSitemapPage() {
         )}
 
         {/* Table */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
+        <div className="overflow-x-auto w-full">
+          <table className="w-full min-w-[650px] text-left text-xs">
             <thead>
               <tr className="bg-[#12141C] text-gray-400 border-b border-white/5 font-semibold">
                 <th className="py-3 px-4">Destination URL</th>

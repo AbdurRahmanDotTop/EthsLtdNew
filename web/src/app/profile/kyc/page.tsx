@@ -284,17 +284,17 @@ export default function KYCPage() {
         </header>
 
         <div className="p-4 max-w-2xl mx-auto w-full space-y-4">
-          <div className="flex justify-between items-center bg-[#1A1C24] p-5 rounded-2xl border border-white/5 shadow-xl">
-            <div className="flex items-center gap-3">
-              <FileCheck className="w-7 h-7 text-[#00A070]" />
-              <div>
-                <span className="text-white font-bold text-base block">Verified Identity</span>
-                <span className="text-gray-400 text-xs">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-[#1A1C24] p-4 sm:p-5 rounded-2xl border border-white/5 shadow-xl">
+            <div className="flex items-center gap-3 min-w-0">
+              <FileCheck className="w-7 h-7 text-[#00A070] shrink-0" />
+              <div className="min-w-0">
+                <span className="text-white font-bold text-base block truncate">Verified Identity</span>
+                <span className="text-gray-400 text-xs break-words">
                   Level 2 Compliance Verification Active & Unlocked
                 </span>
               </div>
             </div>
-            <div className="flex items-center gap-1.5 text-[#00A070] bg-[#00A070]/10 px-3.5 py-1.5 rounded-full border border-[#00A070]/30">
+            <div className="flex items-center gap-1.5 text-[#00A070] bg-[#00A070]/10 px-3.5 py-1.5 rounded-full border border-[#00A070]/30 shrink-0">
               <CheckCircle className="w-4 h-4 fill-current" />
               <span className="font-bold text-xs uppercase tracking-wider">Verified</span>
             </div>
@@ -367,31 +367,31 @@ export default function KYCPage() {
         <div className="p-4 max-w-2xl mx-auto w-full flex flex-col gap-5">
           {/* Status Banner */}
           {isPending ? (
-            <div className="flex items-center justify-between bg-[#1A1C24] p-5 rounded-2xl border border-white/5 shadow-xl">
-              <div className="flex items-center gap-3">
-                <Clock className="w-7 h-7 text-amber-400" />
-                <div>
-                  <span className="text-white font-bold text-base block">Verification Pending</span>
-                  <span className="text-gray-400 text-xs">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-[#1A1C24] p-4 sm:p-5 rounded-2xl border border-white/5 shadow-xl">
+              <div className="flex items-center gap-3 min-w-0">
+                <Clock className="w-7 h-7 text-amber-400 shrink-0" />
+                <div className="min-w-0">
+                  <span className="text-white font-bold text-base block truncate">Verification Pending</span>
+                  <span className="text-gray-400 text-xs break-words">
                     Our compliance team is thoroughly reviewing your submitted documents
                   </span>
                 </div>
               </div>
-              <span className="bg-amber-500/20 text-amber-400 border border-amber-500/30 text-xs font-bold px-3 py-1.5 rounded-full whitespace-nowrap">
+              <span className="bg-amber-500/20 text-amber-400 border border-amber-500/30 text-xs font-bold px-3 py-1.5 rounded-full whitespace-nowrap shrink-0">
                 Under Review
               </span>
             </div>
           ) : (
             <div className="bg-amber-500/10 border border-amber-500/40 p-5 rounded-2xl flex flex-col gap-3 text-amber-300">
-              <div className="flex items-start gap-3">
+              <div className="flex items-start gap-3 min-w-0">
                 <ShieldAlert className="w-6 h-6 text-amber-400 shrink-0 mt-0.5" />
-                <div>
-                  <h3 className="font-bold text-sm text-amber-300">
+                <div className="min-w-0">
+                  <h3 className="font-bold text-sm text-amber-300 break-words">
                     Action Required: Additional Information or Re-upload Needed
                   </h3>
-                  <p className="text-xs text-amber-200/80 mt-1">
+                  <p className="text-xs text-amber-200/80 mt-1 break-words">
                     Compliance Remarks:{" "}
-                    <span className="font-semibold text-white">
+                    <span className="font-semibold text-white break-all">
                       "{kycData?.additionalInfoRequired || "Please update your documents."}"
                     </span>
                   </p>
@@ -408,19 +408,19 @@ export default function KYCPage() {
           )}
 
           {/* Interactive Document Preview Section */}
-          <div className="bg-[#1A1C24] p-5 rounded-2xl border border-white/5 shadow-xl space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <span className="text-sm font-bold text-white block">
+          <div className="bg-[#1A1C24] p-4 sm:p-5 rounded-2xl border border-white/5 shadow-xl space-y-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div className="min-w-0">
+                <span className="text-sm font-bold text-white block truncate">
                   Uploaded Identification Documents
                 </span>
-                <span className="text-xs text-gray-400 font-mono">
+                <span className="text-xs text-gray-400 font-mono break-words">
                   {kycData?.documentType?.replace("_", " ") || "IDENTITY DOCUMENT"} • Attempt #{kycData?.attemptCount || 1}
                 </span>
               </div>
 
               {/* Side Switcher Tabs */}
-              <div className="flex items-center bg-[#12141D] p-1 rounded-xl border border-white/10">
+              <div className="flex items-center bg-[#12141D] p-1 rounded-xl border border-white/10 shrink-0">
                 <button
                   type="button"
                   onClick={() => setActivePreviewSide("front")}
@@ -821,15 +821,15 @@ export default function KYCPage() {
           </div>
 
           {/* 4. Upload Documents Area */}
-          <div className="bg-[#1A1C24] p-5 rounded-2xl border border-white/5 shadow-xl space-y-4">
-            <div className="flex items-center justify-between">
+          <div className="bg-[#1A1C24] p-4 sm:p-5 rounded-2xl border border-white/5 shadow-xl space-y-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
               <div className="flex items-center gap-2">
-                <Upload className="w-4 h-4 text-[#00A070]" />
+                <Upload className="w-4 h-4 text-[#00A070] shrink-0" />
                 <h2 className="text-xs font-bold text-white uppercase tracking-wider">
                   Attach Documents (JPG, PNG, WEBP, or PDF)
                 </h2>
               </div>
-              <span className="text-[10px] text-gray-500 font-mono">Max 5MB each</span>
+              <span className="text-[10px] text-gray-500 font-mono shrink-0">Max 5MB each</span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

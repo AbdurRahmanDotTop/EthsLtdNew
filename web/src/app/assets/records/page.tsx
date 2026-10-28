@@ -124,7 +124,7 @@ function RecordsPageContent() {
                     <span className="text-right text-gray-300">{item.bankName || item.method}</span>
 
                     <span className="text-gray-400">Reference:</span>
-                    <span className="text-right text-gray-400 truncate max-w-[150px] ml-auto">{item.referenceNumber}</span>
+                    <span className="text-right text-gray-400 truncate max-w-[130px] sm:max-w-[220px] ml-auto">{item.referenceNumber}</span>
 
                     <span className="text-gray-400">Time:</span>
                     <span className="text-right text-gray-400">{formattedDate}</span>
@@ -183,7 +183,7 @@ function RecordsPageContent() {
                     <span className="text-right text-emerald-400 font-bold">{item.receiveAmount.toFixed(4)} {item.asset}</span>
 
                     <span className="text-gray-400">Destination:</span>
-                    <span className="text-right text-gray-300 truncate max-w-[170px] ml-auto font-sans" title={item.method === "CRYPTO" ? `${item.network}: ${item.walletAddress}` : `${item.bankName}: ${item.accountNumber}`}>
+                    <span className="text-right text-gray-300 truncate max-w-[130px] sm:max-w-[220px] ml-auto font-sans" title={item.method === "CRYPTO" ? `${item.network}: ${item.walletAddress}` : `${item.bankName}: ${item.accountNumber}`}>
                       {item.method === "CRYPTO"
                         ? `${item.network || "CRYPTO"}: ${item.walletAddress ? `${item.walletAddress.slice(0, 6)}...${item.walletAddress.slice(-4)}` : "Wallet"}`
                         : `${item.bankName || "Bank"}${item.accountNumber ? ` (${item.accountNumber.slice(-4)})` : ""}`}
@@ -192,7 +192,7 @@ function RecordsPageContent() {
                     {item.txHash && (
                       <>
                         <span className="text-gray-400">Tx Hash / Ref:</span>
-                        <span className="text-right text-emerald-400 truncate max-w-[170px] ml-auto" title={item.txHash}>
+                        <span className="text-right text-emerald-400 truncate max-w-[130px] sm:max-w-[220px] ml-auto" title={item.txHash}>
                           {item.txHash}
                         </span>
                       </>
@@ -262,7 +262,7 @@ function RecordsPageContent() {
                     {item.description && (
                       <>
                         <span className="text-gray-400">Details:</span>
-                        <span className="text-right text-gray-300 truncate max-w-[180px] ml-auto">
+                        <span className="text-right text-gray-300 truncate max-w-[130px] sm:max-w-[220px] ml-auto">
                           {item.description}
                         </span>
                       </>

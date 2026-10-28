@@ -349,7 +349,7 @@ export default function DepositPage() {
                     {bankMethods.length > 1 && (
                       <div className="flex flex-col gap-1.5 mb-1">
                         <label className="text-xs font-semibold text-gray-300">Select Bank Account</label>
-                        <div className="grid grid-cols-2 gap-2">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                           {bankMethods.map((bm) => {
                             const isSelected = currentBankMethod?.id === bm.id;
                             return (
@@ -690,7 +690,7 @@ export default function DepositPage() {
                     {/* Network / Channel Selector */}
                     <div className="flex flex-col gap-2">
                       <label className="text-xs font-semibold text-gray-300">Select Network / Asset</label>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 sm:grid-cols-3 gap-2">
                         {cryptoMethods.map((cm) => {
                           const isSelected = currentCryptoMethod?.id === cm.id;
                           return (

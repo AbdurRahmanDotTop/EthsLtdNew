@@ -143,10 +143,10 @@ export default function AdminDepositsPage() {
   return (
     <div className="space-y-6 max-w-7xl mx-auto font-sans">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight flex items-center gap-2">
-            <ArrowDownCircle className="w-6 h-6 text-[#00A070]" />
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 min-w-0">
+        <div className="min-w-0">
+          <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight flex items-center gap-2 flex-wrap">
+            <ArrowDownCircle className="w-6 h-6 text-[#00A070] shrink-0" />
             <span>Deposit Requests Review</span>
           </h1>
           <p className="text-xs text-gray-400 mt-1">
@@ -155,13 +155,13 @@ export default function AdminDepositsPage() {
         </div>
 
         {/* Filter Pills & Refresh */}
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5 bg-[#161822] p-1 rounded-xl border border-white/5">
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1 sm:gap-1.5 bg-[#161822] p-1 rounded-xl border border-white/5 flex-wrap">
             {(["ALL", "PENDING", "APPROVED", "REJECTED"] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setFilter(tab)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                   filter === tab
                     ? "bg-[#00A070] text-white shadow-sm"
                     : "text-gray-400 hover:text-gray-200"
@@ -175,7 +175,7 @@ export default function AdminDepositsPage() {
           <button
             onClick={loadDeposits}
             disabled={isLoading}
-            className="p-2 bg-[#161822] border border-white/10 rounded-xl text-gray-400 hover:text-white transition-colors"
+            className="p-2 bg-[#161822] border border-white/10 rounded-xl text-gray-400 hover:text-white transition-colors cursor-pointer shrink-0"
             title="Refresh deposit requests"
           >
             <RefreshCw className={`w-4 h-4 ${isLoading ? "animate-spin text-[#00A070]" : ""}`} />
@@ -184,7 +184,7 @@ export default function AdminDepositsPage() {
       </div>
 
       {/* Deposits Table */}
-      <div className="bg-[#161822] border border-white/5 rounded-2xl overflow-hidden shadow-xl">
+      <div className="bg-[#161822] border border-white/5 rounded-2xl overflow-hidden shadow-xl min-w-0">
         {isLoading ? (
           <div className="py-20 flex flex-col items-center justify-center gap-2 text-[#00A070]">
             <Loader2 className="w-6 h-6 animate-spin" />
@@ -195,8 +195,8 @@ export default function AdminDepositsPage() {
             No deposit requests found in this category.
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
+          <div className="overflow-x-auto w-full">
+            <table className="w-full min-w-[850px] text-left text-xs">
               <thead className="bg-[#1E202B] text-gray-400 uppercase font-mono text-[10px] border-b border-white/5">
                 <tr>
                   <th className="px-5 py-3.5">User</th>
@@ -213,8 +213,8 @@ export default function AdminDepositsPage() {
                 {filteredDeposits.map((item) => (
                   <tr key={item.id} className="hover:bg-white/[0.02] transition-colors">
                     <td className="px-5 py-4">
-                      <div>
-                        <span className="font-bold text-white block">{item.user?.email || "Unknown User"}</span>
+                      <div className="min-w-0 max-w-[200px]">
+                        <span className="font-bold text-white block break-words break-all">{item.user?.email || "Unknown User"}</span>
                         <span className="text-[10px] font-mono text-[#00A070]">UID: {item.user?.uid ?? "N/A"}</span>
                       </div>
                     </td>

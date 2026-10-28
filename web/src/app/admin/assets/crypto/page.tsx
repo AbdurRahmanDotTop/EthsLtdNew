@@ -225,19 +225,19 @@ export default function AdminCryptoAssetsPage() {
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-[#161822] p-5 rounded-2xl border border-white/5">
-        <div>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-[#161822] p-4 sm:p-5 rounded-2xl border border-white/5 min-w-0">
+        <div className="min-w-0">
           <div className="flex items-center gap-2.5">
             <Link
               href="/admin"
-              className="p-1.5 rounded-lg bg-[#1E202B] text-gray-400 hover:text-white transition-colors"
+              className="p-1.5 rounded-lg bg-[#1E202B] text-gray-400 hover:text-white transition-colors shrink-0"
             >
               <ArrowLeft className="w-4 h-4" />
             </Link>
-            <div className="p-2 bg-[#00A070]/10 rounded-xl text-[#00A070]">
+            <div className="p-2 bg-[#00A070]/10 rounded-xl text-[#00A070] shrink-0">
               <Coins className="w-5 h-5" />
             </div>
-            <div>
+            <div className="min-w-0">
               <h1 className="text-xl font-bold text-white tracking-tight">Crypto Assets Management</h1>
               <p className="text-xs text-gray-400 mt-0.5">
                 Centralized registry for supported cryptocurrencies, blockchain networks, and P2P trading availability.
@@ -246,24 +246,24 @@ export default function AdminCryptoAssetsPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2 sm:gap-2.5 flex-wrap">
           <Link
             href="/admin/assets/fiat"
-            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#1E202B] hover:bg-[#252836] text-xs font-semibold text-gray-200 border border-white/5 transition-colors"
+            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#1E202B] hover:bg-[#252836] text-xs font-semibold text-gray-200 border border-white/5 transition-colors shrink-0"
           >
             <span>Manage Fiat Currencies &rarr;</span>
           </Link>
           <button
             onClick={handleRefresh}
             disabled={refreshing}
-            className="p-2 rounded-xl bg-[#1E202B] hover:bg-[#252836] text-gray-400 hover:text-white border border-white/5 transition-colors cursor-pointer"
+            className="p-2 rounded-xl bg-[#1E202B] hover:bg-[#252836] text-gray-400 hover:text-white border border-white/5 transition-colors cursor-pointer shrink-0"
             title="Refresh list"
           >
             <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin text-[#00A070]" : ""}`} />
           </button>
           <button
             onClick={openCreateModal}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-[#00A070] to-emerald-500 hover:from-[#00b880] hover:to-emerald-400 text-white font-bold text-xs shadow-lg shadow-[#00A070]/20 transition-all cursor-pointer"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-[#00A070] to-emerald-500 hover:from-[#00b880] hover:to-emerald-400 text-white font-bold text-xs shadow-lg shadow-[#00A070]/20 transition-all cursor-pointer shrink-0"
           >
             <Plus className="w-4 h-4" />
             <span>Add Crypto Asset</span>

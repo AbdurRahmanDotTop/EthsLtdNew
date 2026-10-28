@@ -594,24 +594,24 @@ export default function WithdrawPage() {
                               : "bg-[#1A1C24] border-white/5 hover:border-white/20"
                           }`}
                         >
-                          <div className="flex justify-between items-start">
-                            <div className="flex items-center gap-2.5">
-                              <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${
+                          <div className="flex justify-between items-start gap-2.5 min-w-0">
+                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                              <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
                                 isSelected ? "bg-[#00A070] text-white" : "bg-white/5 text-gray-400"
                               }`}>
                                 <CreditCard className="w-4 h-4" />
                               </div>
-                              <div>
-                                <div className="flex items-center gap-2">
-                                  <span className="font-bold text-sm text-white">{card.bankName}</span>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-bold text-sm text-white break-words">{card.bankName}</span>
                                   {card.isPrimary && (
-                                    <span className="text-[10px] bg-[#00A070]/20 text-[#00A070] border border-[#00A070]/30 font-bold px-2 py-0.5 rounded-full flex items-center gap-1 font-mono">
+                                    <span className="text-[10px] bg-[#00A070]/20 text-[#00A070] border border-[#00A070]/30 font-bold px-2 py-0.5 rounded-full flex items-center gap-1 font-mono shrink-0">
                                       <Star className="w-2.5 h-2.5 fill-current" />
                                       PRIMARY
                                     </span>
                                   )}
                                 </div>
-                                <span className="text-xs text-gray-400 font-mono">
+                                <span className="text-xs text-gray-400 font-mono break-all">
                                   {maskAcc(card.accountNumber || card.iban)}
                                 </span>
                               </div>
@@ -726,27 +726,27 @@ export default function WithdrawPage() {
                               : "bg-[#1A1C24] border-white/5 hover:border-white/20"
                           }`}
                         >
-                          <div className="flex justify-between items-start">
-                            <div className="flex items-center gap-2.5">
-                              <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-xs ${
+                          <div className="flex justify-between items-start gap-2.5 min-w-0">
+                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                              <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 ${
                                 isSelected ? "bg-[#00A070] text-white" : "bg-white/5 text-gray-400"
                               }`}>
                                 {wallet.network.slice(0, 3)}
                               </div>
-                              <div>
-                                <div className="flex items-center gap-2">
-                                  <span className="font-bold text-sm text-white">{wallet.label || `${wallet.asset} Wallet`}</span>
-                                  <span className="text-[10px] bg-white/10 text-emerald-400 font-mono font-bold px-1.5 py-0.5 rounded">
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-bold text-sm text-white break-words">{wallet.label || `${wallet.asset} Wallet`}</span>
+                                  <span className="text-[10px] bg-white/10 text-emerald-400 font-mono font-bold px-1.5 py-0.5 rounded shrink-0">
                                     {wallet.network}
                                   </span>
                                   {wallet.isPrimary && (
-                                    <span className="text-[10px] bg-[#00A070]/20 text-[#00A070] border border-[#00A070]/30 font-bold px-2 py-0.5 rounded-full flex items-center gap-1 font-mono">
+                                    <span className="text-[10px] bg-[#00A070]/20 text-[#00A070] border border-[#00A070]/30 font-bold px-2 py-0.5 rounded-full flex items-center gap-1 font-mono shrink-0">
                                       <Star className="w-2.5 h-2.5 fill-current" />
                                       PRIMARY
                                     </span>
                                   )}
                                 </div>
-                                <span className="text-xs text-gray-400 font-mono">
+                                <span className="text-xs text-gray-400 font-mono break-all">
                                   {shortAddr(wallet.address)}
                                 </span>
                               </div>

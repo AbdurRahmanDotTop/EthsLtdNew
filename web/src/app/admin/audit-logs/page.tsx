@@ -79,11 +79,11 @@ export default function AdminAuditLogsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-bold text-white flex items-center gap-2">
-            <ShieldAlert className="w-5 h-5 text-[#00A070]" />
-            Administrative Audit Trail
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 min-w-0">
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold text-white flex items-center gap-2 flex-wrap">
+            <ShieldAlert className="w-5 h-5 text-[#00A070] shrink-0" />
+            <span>Administrative Audit Trail</span>
           </h1>
           <p className="text-xs text-gray-400 mt-0.5">
             Immutable log of all financial modifications, user verifications, balance adjustments, and privilege changes
@@ -92,7 +92,7 @@ export default function AdminAuditLogsPage() {
         <button
           onClick={fetchLogs}
           disabled={loading}
-          className="flex items-center gap-2 px-3.5 py-2 bg-[#1A1C24] border border-white/10 rounded-xl text-xs font-semibold text-gray-300 hover:text-white hover:bg-[#252836] transition-colors"
+          className="flex items-center gap-2 px-3.5 py-2 bg-[#1A1C24] border border-white/10 rounded-xl text-xs font-semibold text-gray-300 hover:text-white hover:bg-[#252836] transition-colors cursor-pointer shrink-0 self-start sm:self-auto"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
           <span>Refresh</span>
@@ -100,8 +100,8 @@ export default function AdminAuditLogsPage() {
       </div>
 
       {/* Filter and Search Bar */}
-      <div className="bg-[#161822] border border-white/5 rounded-2xl p-4 flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
-        <div className="relative flex-1 max-w-md">
+      <div className="bg-[#161822] border border-white/5 rounded-2xl p-4 flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between min-w-0">
+        <div className="relative flex-1 max-w-md w-full">
           <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
           <input
             type="text"
@@ -112,7 +112,7 @@ export default function AdminAuditLogsPage() {
           />
         </div>
 
-        <div className="flex bg-[#10121A] p-1 rounded-xl border border-white/5 text-xs overflow-x-auto">
+        <div className="flex bg-[#10121A] p-1 rounded-xl border border-white/5 text-xs overflow-x-auto max-w-full">
           {[
             { label: "All Logs", value: "ALL" },
             { label: "Security & Anti-Spam", value: "SECURITY" },
@@ -125,7 +125,7 @@ export default function AdminAuditLogsPage() {
             <button
               key={item.value}
               onClick={() => setActionFilter(item.value)}
-              className={`px-3 py-1.5 rounded-lg font-semibold whitespace-nowrap transition-all ${
+              className={`px-3 py-1.5 rounded-lg font-semibold whitespace-nowrap transition-all cursor-pointer ${
                 actionFilter === item.value
                   ? "bg-[#00A070] text-white"
                   : "text-gray-400 hover:text-white"
@@ -138,9 +138,9 @@ export default function AdminAuditLogsPage() {
       </div>
 
       {/* Audit Logs Table */}
-      <div className="bg-[#161822] border border-white/5 rounded-2xl overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
+      <div className="bg-[#161822] border border-white/5 rounded-2xl overflow-hidden min-w-0">
+        <div className="overflow-x-auto w-full">
+          <table className="w-full min-w-[700px] text-left text-xs">
             <thead className="bg-[#12131C] text-gray-400 border-b border-white/5 uppercase font-mono text-[10px]">
               <tr>
                 <th className="px-5 py-3.5">Timestamp</th>
