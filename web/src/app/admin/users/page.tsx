@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { 
   Search, 
   CheckCircle, 
@@ -30,6 +30,8 @@ import {
   Mail,
   Phone,
   Layers,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import {
   getAllUsers,
@@ -374,6 +376,36 @@ export default function AdminUsersPage() {
   const [deleteModalUser, setDeleteModalUser] = useState<UserListItem | null>(null);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [isDeletingUser, setIsDeletingUser] = useState(false);
+
+  // Manage Profile Modal Tabs Horizontal Scrolling State & Handlers
+  const tabsContainerRef = useRef<HTMLDivElement | null>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const checkTabScroll = useCallback(() => {
+    const el = tabsContainerRef.current;
+    if (!el) return;
+    setCanScrollLeft(el.scrollLeft > 4);
+    setCanScrollRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 4);
+  }, []);
+
+  useEffect(() => {
+    // Delay check slightly to let DOM render
+    const t = setTimeout(checkTabScroll, 100);
+    window.addEventListener("resize", checkTabScroll);
+    return () => {
+      clearTimeout(t);
+      window.removeEventListener("resize", checkTabScroll);
+    };
+  }, [checkTabScroll, profileModalUser]);
+
+  const scrollTabs = (direction: "left" | "right") => {
+    const el = tabsContainerRef.current;
+    if (!el) return;
+    const distance = 220;
+    el.scrollBy({ left: direction === "left" ? -distance : distance, behavior: "smooth" });
+    setTimeout(checkTabScroll, 300);
+  };
 
   const loadUsers = useCallback(async () => {
     try {
@@ -1472,10 +1504,10 @@ export default function AdminUsersPage() {
 
       {/* COMPREHENSIVE MANAGE PROFILE MODAL (A-Z CRUD) */}
       {profileModalUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/85 backdrop-blur-md animate-in fade-in duration-150">
-          <div className="relative w-full max-w-4xl bg-[#161822] border border-white/10 rounded-2xl shadow-2xl flex flex-col font-sans max-h-[92vh] overflow-hidden">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 md:p-6 bg-black/85 backdrop-blur-md animate-in fade-in duration-150">
+          <div className="relative w-full max-w-5xl bg-[#161822] border border-white/10 rounded-2xl shadow-2xl flex flex-col font-sans max-h-[92vh] sm:max-h-[90vh] overflow-hidden">
             {/* Modal Header */}
-            <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-white/10 bg-[#12141D] shrink-0 min-w-0">
+            <div className="flex items-center justify-between px-3.5 sm:px-6 py-3 sm:py-4 border-b border-white/10 bg-[#12141D] shrink-0 min-w-0">
               <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
                 <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-[#00A070]/20 text-[#00A070] flex items-center justify-center font-bold text-sm sm:text-base border border-[#00A070]/30 overflow-hidden shrink-0">
                   {profileModalUser.avatarUrl ? (
@@ -1515,96 +1547,157 @@ export default function AdminUsersPage() {
               </button>
             </div>
 
-            {/* Modal Tabs Bar */}
-            <div className="flex items-center overflow-x-auto border-b border-white/5 bg-[#10121A] px-4 shrink-0 text-xs gap-1 scrollbar-none">
-              <button
-                type="button"
-                onClick={() => setActiveTab("profile")}
-                className={`py-3 px-3.5 font-bold flex items-center gap-1.5 border-b-2 transition-all cursor-pointer whitespace-nowrap ${
-                  activeTab === "profile"
-                    ? "border-[#00A070] text-[#00A070] bg-[#00A070]/5"
-                    : "border-transparent text-gray-400 hover:text-gray-200"
-                }`}
+            {/* Modal Tabs Bar with Universal Scroll Controls (Desktop & Mobile) */}
+            <div className="relative border-b border-white/10 bg-[#10121A] shrink-0 flex items-center">
+              {/* Left Scroll Navigation Button */}
+              {canScrollLeft && (
+                <button
+                  type="button"
+                  onClick={() => scrollTabs("left")}
+                  aria-label="Scroll tabs left"
+                  className="absolute left-0 top-0 bottom-0 z-20 px-2 bg-gradient-to-r from-[#10121A] via-[#10121A] to-transparent flex items-center justify-center text-gray-300 hover:text-white transition-colors cursor-pointer"
+                >
+                  <span className="w-6 h-6 rounded-full bg-white/10 hover:bg-[#00A070] flex items-center justify-center transition-colors shadow">
+                    <ChevronLeft className="w-4 h-4 text-white" />
+                  </span>
+                </button>
+              )}
+
+              {/* Tabs Scrollable Row */}
+              <div
+                ref={tabsContainerRef}
+                onScroll={checkTabScroll}
+                onWheel={(e) => {
+                  if (e.deltaY !== 0 && tabsContainerRef.current) {
+                    tabsContainerRef.current.scrollLeft += e.deltaY;
+                  }
+                }}
+                className="flex items-center overflow-x-auto w-full px-3 sm:px-4 text-xs gap-1 sm:gap-1.5 scroll-smooth select-none [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-track]:bg-white/5 [&::-webkit-scrollbar-thumb]:bg-[#00A070]/40 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-[#00A070]"
               >
-                <User className="w-3.5 h-3.5" />
-                <span>Profile & Roles</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab("security")}
-                className={`py-3 px-3.5 font-bold flex items-center gap-1.5 border-b-2 transition-all cursor-pointer whitespace-nowrap ${
-                  activeTab === "security"
-                    ? "border-[#00A070] text-[#00A070] bg-[#00A070]/5"
-                    : "border-transparent text-gray-400 hover:text-gray-200"
-                }`}
-              >
-                <KeyRound className="w-3.5 h-3.5" />
-                <span>Security & Credentials</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab("kyc")}
-                className={`py-3 px-3.5 font-bold flex items-center gap-1.5 border-b-2 transition-all cursor-pointer whitespace-nowrap ${
-                  activeTab === "kyc"
-                    ? "border-[#00A070] text-[#00A070] bg-[#00A070]/5"
-                    : "border-transparent text-gray-400 hover:text-gray-200"
-                }`}
-              >
-                <Shield className="w-3.5 h-3.5" />
-                <span>KYC & Verification</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab("wallets")}
-                className={`py-3 px-3.5 font-bold flex items-center gap-1.5 border-b-2 transition-all cursor-pointer whitespace-nowrap ${
-                  activeTab === "wallets"
-                    ? "border-[#00A070] text-[#00A070] bg-[#00A070]/5"
-                    : "border-transparent text-gray-400 hover:text-gray-200"
-                }`}
-              >
-                <Wallet className="w-3.5 h-3.5" />
-                <span>Wallets & Accounts</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab("activity")}
-                className={`py-3 px-3.5 font-bold flex items-center gap-1.5 border-b-2 transition-all cursor-pointer whitespace-nowrap ${
-                  activeTab === "activity"
-                    ? "border-[#00A070] text-[#00A070] bg-[#00A070]/5"
-                    : "border-transparent text-gray-400 hover:text-gray-200"
-                }`}
-              >
-                <History className="w-3.5 h-3.5" />
-                <span>Activity & Records</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab("rm")}
-                className={`py-3 px-3.5 font-bold flex items-center gap-1.5 border-b-2 transition-all cursor-pointer whitespace-nowrap ${
-                  activeTab === "rm"
-                    ? "border-[#00A070] text-[#00A070] bg-[#00A070]/5"
-                    : "border-transparent text-gray-400 hover:text-gray-200"
-                }`}
-              >
-                <UserCheck className="w-3.5 h-3.5" />
-                <span>Relationship Manager</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab("danger")}
-                className={`py-3 px-3.5 font-bold flex items-center gap-1.5 border-b-2 transition-all cursor-pointer whitespace-nowrap ${
-                  activeTab === "danger"
-                    ? "border-rose-500 text-rose-400 bg-rose-500/5"
-                    : "border-transparent text-rose-400/70 hover:text-rose-300"
-                }`}
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>Danger Zone</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    setActiveTab("profile");
+                    e.currentTarget.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+                  }}
+                  className={`py-3 px-3 sm:px-3.5 font-bold flex items-center gap-1.5 border-b-2 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                    activeTab === "profile"
+                      ? "border-[#00A070] text-[#00A070] bg-[#00A070]/5"
+                      : "border-transparent text-gray-400 hover:text-gray-200"
+                  }`}
+                >
+                  <User className="w-3.5 h-3.5" />
+                  <span>Profile & Roles</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    setActiveTab("security");
+                    e.currentTarget.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+                  }}
+                  className={`py-3 px-3 sm:px-3.5 font-bold flex items-center gap-1.5 border-b-2 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                    activeTab === "security"
+                      ? "border-[#00A070] text-[#00A070] bg-[#00A070]/5"
+                      : "border-transparent text-gray-400 hover:text-gray-200"
+                  }`}
+                >
+                  <KeyRound className="w-3.5 h-3.5" />
+                  <span>Security & Credentials</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    setActiveTab("kyc");
+                    e.currentTarget.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+                  }}
+                  className={`py-3 px-3 sm:px-3.5 font-bold flex items-center gap-1.5 border-b-2 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                    activeTab === "kyc"
+                      ? "border-[#00A070] text-[#00A070] bg-[#00A070]/5"
+                      : "border-transparent text-gray-400 hover:text-gray-200"
+                  }`}
+                >
+                  <Shield className="w-3.5 h-3.5" />
+                  <span>KYC & Verification</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    setActiveTab("wallets");
+                    e.currentTarget.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+                  }}
+                  className={`py-3 px-3 sm:px-3.5 font-bold flex items-center gap-1.5 border-b-2 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                    activeTab === "wallets"
+                      ? "border-[#00A070] text-[#00A070] bg-[#00A070]/5"
+                      : "border-transparent text-gray-400 hover:text-gray-200"
+                  }`}
+                >
+                  <Wallet className="w-3.5 h-3.5" />
+                  <span>Wallets & Accounts</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    setActiveTab("activity");
+                    e.currentTarget.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+                  }}
+                  className={`py-3 px-3 sm:px-3.5 font-bold flex items-center gap-1.5 border-b-2 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                    activeTab === "activity"
+                      ? "border-[#00A070] text-[#00A070] bg-[#00A070]/5"
+                      : "border-transparent text-gray-400 hover:text-gray-200"
+                  }`}
+                >
+                  <History className="w-3.5 h-3.5" />
+                  <span>Activity & Records</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    setActiveTab("rm");
+                    e.currentTarget.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+                  }}
+                  className={`py-3 px-3 sm:px-3.5 font-bold flex items-center gap-1.5 border-b-2 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                    activeTab === "rm"
+                      ? "border-[#00A070] text-[#00A070] bg-[#00A070]/5"
+                      : "border-transparent text-gray-400 hover:text-gray-200"
+                  }`}
+                >
+                  <UserCheck className="w-3.5 h-3.5" />
+                  <span>Relationship Manager</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    setActiveTab("danger");
+                    e.currentTarget.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+                  }}
+                  className={`py-3 px-3 sm:px-3.5 font-bold flex items-center gap-1.5 border-b-2 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                    activeTab === "danger"
+                      ? "border-rose-500 text-rose-400 bg-rose-500/5"
+                      : "border-transparent text-rose-400/70 hover:text-rose-300"
+                  }`}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Danger Zone</span>
+                </button>
+              </div>
+
+              {/* Right Scroll Navigation Button */}
+              {canScrollRight && (
+                <button
+                  type="button"
+                  onClick={() => scrollTabs("right")}
+                  aria-label="Scroll tabs right"
+                  className="absolute right-0 top-0 bottom-0 z-20 px-2 bg-gradient-to-l from-[#10121A] via-[#10121A] to-transparent flex items-center justify-center text-gray-300 hover:text-white transition-colors cursor-pointer"
+                >
+                  <span className="w-6 h-6 rounded-full bg-white/10 hover:bg-[#00A070] flex items-center justify-center transition-colors shadow">
+                    <ChevronRight className="w-4 h-4 text-white" />
+                  </span>
+                </button>
+              )}
             </div>
 
             {/* Modal Body */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-6 text-xs bg-[#161822]">
+            <div className="flex-1 overflow-y-auto p-3.5 sm:p-5 md:p-6 space-y-4 sm:space-y-6 text-xs bg-[#161822] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-white/5 [&::-webkit-scrollbar-thumb]:bg-white/20 [&::-webkit-scrollbar-thumb]:rounded-full">
               {isLoadingProfile ? (
                 <div className="py-24 text-center text-[#00A070] flex flex-col items-center gap-2">
                   <Loader2 className="w-8 h-8 animate-spin" />
@@ -1834,20 +1927,20 @@ export default function AdminUsersPage() {
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-center">
                           <div className="space-y-2">
                             <label className="block text-gray-300 font-semibold">Set Custom 6-Digit PIN</label>
-                            <div className="flex items-center gap-2">
+                            <div className="flex flex-col min-[480px]:flex-row items-stretch min-[480px]:items-center gap-2">
                               <input
                                 type="text"
                                 maxLength={6}
                                 value={customPin}
                                 onChange={(e) => setCustomPin(e.target.value.replace(/\D/g, ""))}
                                 placeholder="e.g. 987654"
-                                className="flex-1 bg-[#161822] border border-white/10 rounded-xl px-3 py-2 text-white font-mono tracking-widest focus:outline-none focus:border-[#00A070]"
+                                className="flex-1 min-w-0 bg-[#161822] border border-white/10 rounded-xl px-3 py-2 text-white font-mono tracking-widest focus:outline-none focus:border-[#00A070]"
                               />
                               <button
                                 type="button"
                                 onClick={handleSaveCustomPin}
                                 disabled={isSettingPin || customPin.length !== 6}
-                                className="px-4 py-2 rounded-xl bg-[#00A070] hover:bg-[#008f64] disabled:opacity-40 text-white font-bold text-xs whitespace-nowrap cursor-pointer"
+                                className="w-full min-[480px]:w-auto px-4 py-2 rounded-xl bg-[#00A070] hover:bg-[#008f64] disabled:opacity-40 text-white font-bold text-xs whitespace-nowrap cursor-pointer text-center"
                               >
                                 {isSettingPin ? "Saving..." : "Save PIN"}
                               </button>
@@ -2421,11 +2514,11 @@ export default function AdminUsersPage() {
                   {activeTab === "activity" && (
                     <div className="space-y-4">
                       {/* Sub-tabs */}
-                      <div className="flex items-center gap-1 border-b border-white/5 pb-2 text-[11px]">
+                      <div className="flex items-center gap-1 border-b border-white/5 pb-2 text-[11px] overflow-x-auto scrollbar-none">
                         <button
                           type="button"
                           onClick={() => setActivitySubTab("orders")}
-                          className={`px-3 py-1.5 rounded-lg font-bold transition-all ${
+                          className={`px-3 py-1.5 rounded-lg font-bold transition-all whitespace-nowrap shrink-0 ${
                             activitySubTab === "orders" ? "bg-[#00A070] text-white" : "text-gray-400 hover:text-white"
                           }`}
                         >
@@ -2434,7 +2527,7 @@ export default function AdminUsersPage() {
                         <button
                           type="button"
                           onClick={() => setActivitySubTab("transactions")}
-                          className={`px-3 py-1.5 rounded-lg font-bold transition-all ${
+                          className={`px-3 py-1.5 rounded-lg font-bold transition-all whitespace-nowrap shrink-0 ${
                             activitySubTab === "transactions" ? "bg-[#00A070] text-white" : "text-gray-400 hover:text-white"
                           }`}
                         >
@@ -2443,7 +2536,7 @@ export default function AdminUsersPage() {
                         <button
                           type="button"
                           onClick={() => setActivitySubTab("deposits")}
-                          className={`px-3 py-1.5 rounded-lg font-bold transition-all ${
+                          className={`px-3 py-1.5 rounded-lg font-bold transition-all whitespace-nowrap shrink-0 ${
                             activitySubTab === "deposits" ? "bg-[#00A070] text-white" : "text-gray-400 hover:text-white"
                           }`}
                         >
@@ -2452,7 +2545,7 @@ export default function AdminUsersPage() {
                         <button
                           type="button"
                           onClick={() => setActivitySubTab("withdrawals")}
-                          className={`px-3 py-1.5 rounded-lg font-bold transition-all ${
+                          className={`px-3 py-1.5 rounded-lg font-bold transition-all whitespace-nowrap shrink-0 ${
                             activitySubTab === "withdrawals" ? "bg-[#00A070] text-white" : "text-gray-400 hover:text-white"
                           }`}
                         >
@@ -2608,11 +2701,11 @@ export default function AdminUsersPage() {
                           </div>
                         )}
 
-                        <div className="flex items-center gap-2 pt-1">
+                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-1">
                           <select
                             value={selectedRmId}
                             onChange={(e) => setSelectedRmId(e.target.value)}
-                            className="flex-1 bg-[#161822] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#00A070]"
+                            className="flex-1 min-w-0 bg-[#161822] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#00A070]"
                           >
                             <option value="">-- Select Active Relationship Manager --</option>
                             {availableRms.map((rm) => (
@@ -2625,7 +2718,7 @@ export default function AdminUsersPage() {
                             type="button"
                             onClick={handleAssignRm}
                             disabled={isAssigningRm || !selectedRmId}
-                            className="px-4 py-2 rounded-xl bg-[#00A070] hover:bg-[#008f64] disabled:opacity-40 text-white font-bold text-xs shadow-md shadow-[#00A070]/20 cursor-pointer whitespace-nowrap"
+                            className="w-full sm:w-auto px-4 py-2 rounded-xl bg-[#00A070] hover:bg-[#008f64] disabled:opacity-40 text-white font-bold text-xs shadow-md shadow-[#00A070]/20 cursor-pointer whitespace-nowrap text-center"
                           >
                             {isAssigningRm ? "Assigning..." : "Assign Manager"}
                           </button>
