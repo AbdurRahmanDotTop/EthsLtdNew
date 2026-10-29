@@ -30,6 +30,7 @@ import {
   submitRmReview,
   getRmReviews,
   deleteUserRmReview,
+  ensureInvestmentContract,
 } from "@/actions/rm";
 import { getAuthSession } from "@/actions/auth";
 import { toast } from "sonner";
@@ -59,6 +60,29 @@ export default function RelationshipManagersPage() {
   const [viewReviewsRm, setViewReviewsRm] = useState<any | null>(null);
   const [reviewsList, setReviewsList] = useState<any[]>([]);
   const [isLoadingReviews, setIsLoadingReviews] = useState(false);
+
+  // Contract Navigation State
+  const [openingContractId, setOpeningContractId] = useState<string | null>(null);
+
+  const handleReviewAndSign = async (connectionId: string, existingContractId?: string) => {
+    if (existingContractId) {
+      router.push(`/contracts/${existingContractId}`);
+      return;
+    }
+    setOpeningContractId(connectionId);
+    try {
+      const res = await ensureInvestmentContract(connectionId);
+      if (res.success && res.contractId) {
+        router.push(`/contracts/${res.contractId}`);
+      } else {
+        toast.error(res.error || "Failed to load contract.");
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Failed to load contract.");
+    } finally {
+      setOpeningContractId(null);
+    }
+  };
 
   const loadData = async () => {
     try {
@@ -504,13 +528,15 @@ export default function RelationshipManagersPage() {
                   )}
 
                   {(status === "CONTRACT_PENDING" || status === "ACCEPTED") && !isContractFullySigned && (
-                    <Link
-                      href={contract ? `/contracts/${contract.id}` : "#"}
-                      className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold shadow-lg shadow-sky-600/20 transition-all"
+                    <button
+                      type="button"
+                      onClick={() => handleReviewAndSign(rel.connectionId, contract?.id)}
+                      disabled={openingContractId === rel.connectionId}
+                      className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold shadow-lg shadow-sky-600/20 transition-all cursor-pointer disabled:opacity-60"
                     >
                       <FileSignature className="w-4 h-4" />
-                      <span>Review & Sign Contract</span>
-                    </Link>
+                      <span>{openingContractId === rel.connectionId ? "Loading Contract..." : "Review & Sign Contract"}</span>
+                    </button>
                   )}
 
                   {status === "ACTIVE" && isContractFullySigned && (
@@ -522,13 +548,15 @@ export default function RelationshipManagersPage() {
                         <MessageSquare className="w-3.5 h-3.5" />
                         <span>Private Chat</span>
                       </Link>
-                      <Link
-                        href={contract ? `/contracts/${contract.id}` : "#"}
-                        className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-[#1E202B] hover:bg-[#252836] text-gray-200 border border-white/10 text-xs font-semibold transition-all"
+                      <button
+                        type="button"
+                        onClick={() => handleReviewAndSign(rel.connectionId, contract?.id)}
+                        disabled={openingContractId === rel.connectionId}
+                        className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-[#1E202B] hover:bg-[#252836] text-gray-200 border border-white/10 text-xs font-semibold transition-all cursor-pointer disabled:opacity-60"
                       >
                         <FileSignature className="w-3.5 h-3.5 text-[#00A070]" />
-                        <span>View Contract</span>
-                      </Link>
+                        <span>{openingContractId === rel.connectionId ? "Loading..." : "View Contract"}</span>
+                      </button>
                     </div>
                   )}
 

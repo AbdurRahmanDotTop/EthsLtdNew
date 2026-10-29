@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { 
@@ -28,7 +28,7 @@ import {
   Globe,
   Database
 } from "lucide-react";
-import { logoutUser } from "@/actions/auth";
+import { logoutUser, getAuthSession } from "@/actions/auth";
 import { toast } from "sonner";
 import { Logo } from "@/components/ui/logo";
 
@@ -36,6 +36,17 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const pathname = usePathname();
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    getAuthSession().then((session) => {
+      if (!session) {
+        router.push("/login?redirect=" + encodeURIComponent(pathname));
+      } else if (session.role !== "ADMIN" && session.role !== "SUPER_ADMIN") {
+        toast.error("Access denied. Admin privileges required.");
+        router.push("/assets");
+      }
+    });
+  }, [pathname, router]);
 
   const navItems = [
     { name: "Overview", href: "/admin", icon: LayoutDashboard },

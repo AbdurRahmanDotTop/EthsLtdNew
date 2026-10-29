@@ -82,6 +82,9 @@ export async function setAuthCookie(payload: SessionPayload) {
 }
 
 export async function getSession(): Promise<SessionPayload | null> {
+  if (process.env.CLI_TEST_MODE === "true" && (globalThis as any).__mockSession) {
+    return (globalThis as any).__mockSession;
+  }
   try {
     const cookieStore = await cookies();
     const token = cookieStore.get(COOKIE_NAME)?.value;

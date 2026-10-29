@@ -42,9 +42,13 @@ export default function RmDashboardPage() {
         setData(res);
       } else {
         toast.error(res.error || "Failed to load dashboard data");
+        if (res.error?.includes("Unauthorized") || res.error?.includes("Authentication")) {
+          router.push("/login?redirect=/rm/dashboard");
+        }
       }
     } catch (e: any) {
       toast.error(e.message || "Error loading dashboard");
+      router.push("/login?redirect=/rm/dashboard");
     } finally {
       setLoading(false);
     }

@@ -114,14 +114,31 @@ export async function getAvailableRms(params?: { search?: string; service?: stri
       let userReviews: Record<string, any> = {};
 
       if (currentUserId) {
-        const [connsRes, revsRes] = await Promise.all([
+        const [connsRes, revsRes, contractsRes] = await Promise.all([
           db.prepare("SELECT rmId, id as connectionId, status, requestedAt, activatedAt FROM RmConnection WHERE userId = ?").bind(currentUserId).all(),
           db.prepare("SELECT rmId, id, rating, comment, createdAt FROM RmReview WHERE userId = ?").bind(currentUserId).all(),
+          db.prepare("SELECT id, connectionId, userId, rmId, status, contractNumber, partyASignedAt, partyBSignedAt, createdAt FROM InvestmentContract WHERE userId = ? ORDER BY createdAt DESC").bind(currentUserId).all(),
         ]);
-        for (const conn of (connsRes.results || [])) {
-          userConnections[conn.rmId] = conn;
+
+        const contractsByConn: Record<string, any> = {};
+        const contractsByRm: Record<string, any> = {};
+        for (const c of (contractsRes?.results || [])) {
+          if (c.connectionId && !contractsByConn[c.connectionId]) {
+            contractsByConn[c.connectionId] = c;
+          }
+          if (c.rmId && !contractsByRm[c.rmId]) {
+            contractsByRm[c.rmId] = c;
+          }
         }
-        for (const rev of (revsRes.results || [])) {
+
+        for (const conn of (connsRes?.results || [])) {
+          const matchedContract = contractsByConn[conn.connectionId] || contractsByRm[conn.rmId] || null;
+          userConnections[conn.rmId] = {
+            ...conn,
+            contract: matchedContract,
+          };
+        }
+        for (const rev of (revsRes?.results || [])) {
           userReviews[rev.rmId] = rev;
         }
       }
@@ -207,7 +224,7 @@ export async function getAvailableRms(params?: { search?: string; service?: stri
     let userConnections: Record<string, any> = {};
     let userReviews: Record<string, { id: string; rating: number; comment?: string | null; createdAt: Date }> = {};
     if (currentUserId) {
-      const [connections, reviews] = await Promise.all([
+      const [connections, reviews, userContracts] = await Promise.all([
         prisma.rmConnection.findMany({
           where: { userId: currentUserId },
           include: {
@@ -221,7 +238,22 @@ export async function getAvailableRms(params?: { search?: string; service?: stri
           where: { userId: currentUserId },
           select: { id: true, rmId: true, rating: true, comment: true, createdAt: true },
         }),
+        prisma.investmentContract.findMany({
+          where: { userId: currentUserId },
+          orderBy: { createdAt: "desc" },
+        }),
       ]);
+
+      const contractsByConn: Record<string, any> = {};
+      const contractsByRm: Record<string, any> = {};
+      for (const c of userContracts) {
+        if (c.connectionId && !contractsByConn[c.connectionId]) {
+          contractsByConn[c.connectionId] = c;
+        }
+        if (c.rmId && !contractsByRm[c.rmId]) {
+          contractsByRm[c.rmId] = c;
+        }
+      }
 
       for (const conn of connections) {
         userConnections[conn.rmId] = {
@@ -229,7 +261,7 @@ export async function getAvailableRms(params?: { search?: string; service?: stri
           status: conn.status,
           requestedAt: conn.requestedAt,
           activatedAt: conn.activatedAt,
-          contract: conn.contracts[0] || null,
+          contract: conn.contracts[0] || contractsByConn[conn.id] || contractsByRm[conn.rmId] || null,
         };
       }
 
@@ -754,6 +786,141 @@ export async function respondToConnectionRequest(
   } catch (error: any) {
     console.error("respondToConnectionRequest error:", error);
     return { success: false, error: error.message };
+  }
+}
+
+export async function ensureInvestmentContract(connectionId: string): Promise<{ success: boolean; contractId?: string; error?: string }> {
+  try {
+    const user = await verifyAuthUser();
+
+    // Direct D1 query support if in Cloudflare Worker environment
+    const db = await getD1Db();
+    if (db && typeof db.prepare === "function") {
+      const connRow = await db.prepare(
+        "SELECT id, userId, rmId, status FROM RmConnection WHERE id = ?"
+      ).bind(connectionId).first();
+
+      if (!connRow) {
+        return { success: false, error: "Connection request not found." };
+      }
+
+      const isAdmin = user.role === "ADMIN" || user.role === "SUPER_ADMIN";
+      if (connRow.userId !== user.id && connRow.rmId !== user.id && !isAdmin) {
+        return { success: false, error: "Unauthorized access to this connection agreement." };
+      }
+
+      const existingContract = await db.prepare(
+        "SELECT id FROM InvestmentContract WHERE connectionId = ? OR (userId = ? AND rmId = ?) ORDER BY createdAt DESC"
+      ).bind(connectionId, connRow.userId, connRow.rmId).first();
+
+      if (existingContract?.id) {
+        return { success: true, contractId: existingContract.id };
+      }
+    }
+
+    const connection = await prisma.rmConnection.findUnique({
+      where: { id: connectionId },
+      include: {
+        user: true,
+        rm: { include: { rmProfile: true } },
+        contracts: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+        },
+      },
+    });
+
+    if (!connection) {
+      return { success: false, error: "Connection request not found." };
+    }
+
+    const isAdmin = user.role === "ADMIN" || user.role === "SUPER_ADMIN";
+    if (connection.userId !== user.id && connection.rmId !== user.id && !isAdmin) {
+      return { success: false, error: "Unauthorized access to this connection agreement." };
+    }
+
+    if (connection.contracts && connection.contracts.length > 0) {
+      return {
+        success: true,
+        contractId: connection.contracts[0].id,
+      };
+    }
+
+    const existingContract = await prisma.investmentContract.findFirst({
+      where: {
+        OR: [
+          { connectionId: connection.id },
+          { userId: connection.userId, rmId: connection.rmId },
+        ],
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (existingContract) {
+      return {
+        success: true,
+        contractId: existingContract.id,
+      };
+    }
+
+    const clientUid = connection.user?.uid || 0;
+    const contractNumber = `ETH-AGR-${Date.now().toString().slice(-6)}-${clientUid}`;
+    const rmName = connection.rm?.name || "Relationship Manager";
+    const rmCode = connection.rm?.rmProfile?.rmCode || `RM-${connection.rm?.uid || 0}`;
+    const clientName = connection.user?.name || connection.user?.email || "Client";
+
+    const standardTerms = getStandardContractTerms({
+      contractNumber,
+      rmName,
+      rmCode,
+      clientName,
+      clientUid,
+    });
+
+    const partyAName = `${rmName} (${rmCode})`;
+    const partyBName = `${clientName} (UID: #${clientUid})`;
+
+    const newContract = await prisma.investmentContract.create({
+      data: {
+        contractNumber,
+        connectionId: connection.id,
+        userId: connection.userId,
+        rmId: connection.rmId,
+        title: "ETH Investment Contract",
+        version: "1.0.0",
+        status: "PENDING_SIGNATURE",
+        partyAName,
+        partyARole: "Licensed Relationship Manager (Party A)",
+        partyBName,
+        partyBRole: "Investor / Trader Client (Party B)",
+        termsText: standardTerms,
+        companyLegalName: "ETHSLTD Financial Technology Research Group",
+        websiteUrl: "https://www.ethsltd.com",
+        jurisdiction: "Virtual Currency International Investment Contract Law",
+        auditTrail: JSON.stringify([
+          {
+            action: "CONTRACT_INITIALIZED",
+            timestamp: new Date().toISOString(),
+            by: user.email,
+            role: user.role,
+          },
+        ]),
+      },
+    });
+
+    if (connection.status === "REQUESTED") {
+      await prisma.rmConnection.update({
+        where: { id: connection.id },
+        data: { status: "CONTRACT_PENDING" },
+      });
+    }
+
+    safeRevalidate("/relationship-managers");
+    safeRevalidate("/rm/dashboard");
+    return { success: true, contractId: newContract.id };
+  } catch (error: any) {
+    console.error("ensureInvestmentContract error:", error);
+    return { success: false, error: error.message || "Failed to initialize contract document." };
   }
 }
 
