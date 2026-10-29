@@ -810,7 +810,7 @@ export async function sendLoginAlertNotification(data: {
   });
 }
 
-export type AdminEventType = "REGISTRATION" | "REGISTRATION_VERIFIED" | "DEPOSIT" | "WITHDRAWAL" | "KYC";
+export type AdminEventType = "REGISTRATION" | "REGISTRATION_VERIFIED" | "DEPOSIT" | "WITHDRAWAL" | "KYC" | "P2P_DISPUTE";
 
 export async function sendAdminEventNotification(data: {
   eventType: AdminEventType;
@@ -1267,6 +1267,232 @@ export async function sendApiSecurityNotification(data: {
     html,
   });
 }
+
+export async function sendAdminDisputeAlertNotification(data: {
+  disputeId: string;
+  disputeNumber: string;
+  orderId: string;
+  orderNumber: string;
+  openerName: string;
+  openerEmail: string;
+  openerRole: "BUYER" | "SELLER";
+  buyerName: string;
+  buyerEmail: string;
+  sellerName: string;
+  sellerEmail: string;
+  cryptoAmount: number | string;
+  asset: string;
+  fiatAmount: number | string;
+  fiatCurrency: string;
+  reason: string;
+  description?: string;
+  createdAt?: Date | string;
+}) {
+  try {
+    const config = await prisma.emailConfig.findFirst({
+      where: { enabled: true },
+      orderBy: { isDefault: "desc" },
+    });
+
+    const adminEmailsStr = (config?.adminEmails || process.env.ADMIN_EMAIL || "admin@ethsltd.com").trim();
+    const recipientSet = new Set<string>();
+
+    adminEmailsStr
+      .split(",")
+      .map((e: string) => e.trim().toLowerCase())
+      .filter((e: string) => e.includes("@"))
+      .forEach((e: string) => recipientSet.add(e));
+
+    // Also include registered administrators from the database
+    try {
+      const dbAdmins = await prisma.user.findMany({
+        where: { role: { in: ["ADMIN", "SUPER_ADMIN"] } },
+        select: { email: true },
+      });
+      for (const a of dbAdmins) {
+        if (a.email?.includes("@")) recipientSet.add(a.email.trim().toLowerCase());
+      }
+    } catch {}
+
+    const recipients = Array.from(recipientSet);
+    if (recipients.length === 0) return { success: false, error: "No valid admin email recipients" };
+
+    const appUrl = getAppUrlSync();
+    const disputeConsoleUrl = `${appUrl}/admin/p2p/disputes?id=${data.disputeId}`;
+
+    const html = buildEmailTemplate({
+      title: `[ADMIN ALERT] New P2P Dispute Raised: ${data.disputeNumber}`,
+      preheader: `Dispute filed on Order ${data.orderNumber} for ${data.cryptoAmount} ${data.asset}`,
+      contentHtml: `
+        <div style="background-color: #7C2D12; border: 1px solid #EA580C; padding: 12px 16px; border-radius: 8px; margin-bottom: 16px;">
+          <p style="color: #FED7AA; font-weight: 700; margin: 0; font-size: 14px;">Urgent: P2P Escrow Disputed</p>
+          <p style="color: #FFEDD5; margin: 4px 0 0 0; font-size: 12px;">A counterparty has raised a dispute requiring administrative review and escrow disposition.</p>
+        </div>
+
+        <div style="background-color: #12141C; padding: 18px; border-radius: 8px; margin: 16px 0; border-left: 4px solid #F59E0B;">
+          <p style="margin: 0 0 8px 0; font-size: 13px;"><strong>Dispute Case:</strong> <span style="color: #F59E0B; font-weight: 700;">#${data.disputeNumber}</span></p>
+          <p style="margin: 0 0 8px 0; font-size: 13px;"><strong>Associated Order:</strong> #${data.orderNumber}</p>
+          <p style="margin: 0 0 8px 0; font-size: 13px;"><strong>Escrow Amount:</strong> <span style="color: #10B981; font-weight: 700;">${data.cryptoAmount} ${data.asset}</span> (${Number(data.fiatAmount).toLocaleString()} ${data.fiatCurrency})</p>
+          <p style="margin: 0 0 8px 0; font-size: 13px;"><strong>Dispute Initiator:</strong> ${data.openerName} (${data.openerEmail}) [${data.openerRole}]</p>
+          <p style="margin: 0 0 8px 0; font-size: 13px;"><strong>Buyer:</strong> ${data.buyerName} (${data.buyerEmail})</p>
+          <p style="margin: 0 0 8px 0; font-size: 13px;"><strong>Seller:</strong> ${data.sellerName} (${data.sellerEmail})</p>
+          <p style="margin: 0 0 8px 0; font-size: 13px;"><strong>Dispute Reason:</strong> <span style="color: #FCD34D;">${data.reason}</span></p>
+          ${data.description ? `<p style="margin: 0; font-size: 12px; color: #9CA3AF; background-color: #1A1D27; padding: 10px; border-radius: 6px;"><em>"${data.description}"</em></p>` : ""}
+        </div>
+
+        <p style="font-size: 12px; color: #9CA3AF; line-height: 1.5;">
+          The cryptocurrency escrow is automatically locked and cannot be released or cancelled by either trader until an authorized administrator adjudicates the case.
+        </p>
+      `,
+      callToAction: {
+        text: "Open Dispute Resolution Console",
+        url: disputeConsoleUrl,
+      },
+    });
+
+    const results = await Promise.all(
+      recipients.map((to: string) =>
+        sendEmail({
+          to,
+          subject: `[ADMIN ALERT] New P2P Dispute ${data.disputeNumber} (Order #${data.orderNumber}) - ETHSLTD`,
+          eventType: "ADMIN_ALERT",
+          category: EmailCategory.ADMIN_ALERTS,
+          html,
+        })
+      )
+    );
+
+    return { success: results.some((r) => r.success) };
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    console.error("sendAdminDisputeAlertNotification failed:", errorMsg);
+    return { success: false, error: errorMsg };
+  }
+}
+
+export async function sendDisputeStatusUpdateNotification(data: {
+  email: string;
+  name?: string;
+  role: "BUYER" | "SELLER";
+  disputeNumber: string;
+  orderNumber: string;
+  status: string;
+  message: string;
+  requiresAction?: boolean;
+  actionUrl?: string;
+}) {
+  try {
+    const appUrl = getAppUrlSync();
+    const orderUrl = data.actionUrl || `${appUrl}/p2p/orders`;
+
+    const html = buildEmailTemplate({
+      title: `Dispute #${data.disputeNumber} Update`,
+      preheader: data.message,
+      contentHtml: `
+        <p>Dear ${data.name || (data.role === "BUYER" ? "Buyer" : "Seller")},</p>
+        <p>An update has been posted to your P2P trade dispute for <strong>Order #${data.orderNumber}</strong>:</p>
+
+        <div style="background-color: #12141C; padding: 16px; border-radius: 8px; margin: 16px 0; border-left: 4px solid #3B82F6;">
+          <p style="margin: 0 0 6px 0;"><strong>Case ID:</strong> #${data.disputeNumber}</p>
+          <p style="margin: 0 0 6px 0;"><strong>Current Status:</strong> <span style="color: #60A5FA; font-weight: 700;">${data.status.replace(/_/g, " ")}</span></p>
+          <p style="margin: 0;"><strong>Message from Moderator:</strong> ${data.message}</p>
+        </div>
+
+        ${data.requiresAction ? `<p style="color: #F59E0B; font-weight: 600;">Action Required: Please click below to review moderator requests and submit supporting evidence.</p>` : ""}
+      `,
+      callToAction: {
+        text: data.requiresAction ? "Submit Evidence / View Order" : "View Dispute Details",
+        url: orderUrl,
+      },
+    });
+
+    return await sendEmail({
+      to: data.email,
+      subject: `[P2P Dispute] #${data.disputeNumber} Update - ETHSLTD`,
+      eventType: "P2P_ORDER_STATUS",
+      category: EmailCategory.P2P,
+      html,
+    });
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    console.error("sendDisputeStatusUpdateNotification failed:", errorMsg);
+    return { success: false, error: errorMsg };
+  }
+}
+
+export async function sendDisputeResolvedNotification(data: {
+  email: string;
+  name?: string;
+  role: "BUYER" | "SELLER";
+  disputeNumber: string;
+  orderNumber: string;
+  decision: "BUYER_WINS" | "SELLER_WINS" | "DISMISSED";
+  resolutionNotes?: string;
+  cryptoAmount: number | string;
+  asset: string;
+  recipientOutcome: "ESCROW_RECEIVED" | "ESCROW_RETURNED" | "DISMISSED" | "ESCROW_LOST";
+}) {
+  try {
+    const appUrl = getAppUrlSync();
+    const orderUrl = `${appUrl}/p2p/orders`;
+
+    const isWinner = data.recipientOutcome === "ESCROW_RECEIVED" || data.recipientOutcome === "ESCROW_RETURNED";
+    const statusColor = isWinner ? "#10B981" : "#EF4444";
+
+    let outcomeTitle = "Dispute Resolved";
+    let outcomeDescription = "";
+
+    if (data.recipientOutcome === "ESCROW_RECEIVED") {
+      outcomeTitle = "Dispute Resolved in Your Favor - Escrow Released";
+      outcomeDescription = `The moderator has resolved the dispute in your favor. Exactly ${data.cryptoAmount} ${data.asset} has been credited to your platform wallet balance.`;
+    } else if (data.recipientOutcome === "ESCROW_RETURNED") {
+      outcomeTitle = "Dispute Resolved in Your Favor - Escrow Returned";
+      outcomeDescription = `The dispute has been resolved in your favor. The locked escrow of ${data.cryptoAmount} ${data.asset} has been safely returned to your wallet balance.`;
+    } else if (data.recipientOutcome === "DISMISSED") {
+      outcomeTitle = "Dispute Dismissed";
+      outcomeDescription = `The dispute claim has been reviewed and dismissed by the administrator.`;
+    } else {
+      outcomeTitle = "Dispute Adjudicated";
+      outcomeDescription = `The dispute for Order #${data.orderNumber} has been resolved by our moderation team.`;
+    }
+
+    const html = buildEmailTemplate({
+      title: outcomeTitle,
+      preheader: `Dispute #${data.disputeNumber} has reached a final resolution.`,
+      contentHtml: `
+        <p>Dear ${data.name || (data.role === "BUYER" ? "Buyer" : "Seller")},</p>
+        <p>${outcomeDescription}</p>
+
+        <div style="background-color: #12141C; padding: 18px; border-radius: 8px; margin: 16px 0; border-left: 4px solid ${statusColor};">
+          <p style="margin: 0 0 6px 0;"><strong>Case ID:</strong> #${data.disputeNumber}</p>
+          <p style="margin: 0 0 6px 0;"><strong>Order ID:</strong> #${data.orderNumber}</p>
+          <p style="margin: 0 0 6px 0;"><strong>Official Ruling:</strong> <span style="color: ${statusColor}; font-weight: 700;">${data.decision.replace(/_/g, " ")}</span></p>
+          <p style="margin: 0 0 6px 0;"><strong>Escrow Amount:</strong> ${data.cryptoAmount} ${data.asset}</p>
+          ${data.resolutionNotes ? `<p style="margin: 0; font-size: 13px; color: #D1D5DB;"><strong>Moderator Rationale:</strong> <em>"${data.resolutionNotes}"</em></p>` : ""}
+        </div>
+
+        <p style="font-size: 12px; color: #9CA3AF;">This ruling was authorized by an ETHSLTD compliance administrator and is permanently recorded in the platform audit ledger.</p>
+      `,
+      callToAction: {
+        text: "View Trade Order Details",
+        url: orderUrl,
+      },
+    });
+
+    return await sendEmail({
+      to: data.email,
+      subject: `[P2P Dispute Resolution] Ruling on #${data.disputeNumber} - ETHSLTD`,
+      eventType: "P2P_ORDER_STATUS",
+      category: EmailCategory.P2P,
+      html,
+    });
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    console.error("sendDisputeResolvedNotification failed:", errorMsg);
+    return { success: false, error: errorMsg };
+  }
+}
+
 
 
 

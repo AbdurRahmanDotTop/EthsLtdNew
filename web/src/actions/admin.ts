@@ -18,6 +18,9 @@ import {
   sendKycNotification,
   sendTestEmail,
   sendEmail,
+  sendAdminDisputeAlertNotification,
+  sendDisputeStatusUpdateNotification,
+  sendDisputeResolvedNotification,
   EmailSendResult,
   SendEmailOptions,
 } from "@/lib/email";
@@ -91,6 +94,9 @@ export async function getAdminStats() {
   const pendingKycCount = await prisma.kycApplication.count({ where: { status: "PENDING" } });
   const pendingDepositsCount = await prisma.depositRequest.count({ where: { status: "PENDING" } });
   const pendingWithdrawalsCount = await prisma.withdrawalRequest.count({ where: { status: "PENDING" } });
+  const pendingDisputesCount = await prisma.p2pDispute.count({
+    where: { status: { in: ["OPEN", "UNDER_REVIEW", "AWAITING_EVIDENCE", "ESCALATED"] } },
+  });
 
   return {
     totalUsers,
@@ -101,6 +107,7 @@ export async function getAdminStats() {
     pendingKycCount,
     pendingDepositsCount,
     pendingWithdrawalsCount,
+    pendingDisputesCount,
   };
 }
 
@@ -1841,15 +1848,29 @@ export async function getAllConnectionsAdmin(filters?: { status?: string; search
 export async function getAdminP2pStats() {
   await verifyAdmin();
 
-  const [totalOrders, completedOrders, disputedOrders, totalDisputes, activeAds, openDisputes] =
-    await Promise.all([
-      prisma.p2pOrder.count(),
-      prisma.p2pOrder.count({ where: { status: "COMPLETED" } }),
-      prisma.p2pOrder.count({ where: { status: "DISPUTED" } }),
-      prisma.p2pDispute.count(),
-      prisma.p2pAd.count({ where: { status: "ACTIVE" } }),
-      prisma.p2pDispute.count({ where: { status: "OPEN" } }),
-    ]);
+  const [
+    totalOrders,
+    completedOrders,
+    disputedOrders,
+    totalDisputes,
+    activeAds,
+    openDisputes,
+    underReviewDisputes,
+    awaitingEvidenceDisputes,
+    escalatedDisputes,
+    resolvedDisputes,
+  ] = await Promise.all([
+    prisma.p2pOrder.count(),
+    prisma.p2pOrder.count({ where: { status: "COMPLETED" } }),
+    prisma.p2pOrder.count({ where: { status: "DISPUTED" } }),
+    prisma.p2pDispute.count(),
+    prisma.p2pAd.count({ where: { status: "ACTIVE" } }),
+    prisma.p2pDispute.count({ where: { status: "OPEN" } }),
+    prisma.p2pDispute.count({ where: { status: "UNDER_REVIEW" } }),
+    prisma.p2pDispute.count({ where: { status: "AWAITING_EVIDENCE" } }),
+    prisma.p2pDispute.count({ where: { status: "ESCALATED" } }),
+    prisma.p2pDispute.count({ where: { status: { in: ["RESOLVED_BUYER", "RESOLVED_SELLER"] } } }),
+  ]);
 
   const completed = await prisma.p2pOrder.findMany({
     where: { status: "COMPLETED" },
@@ -1866,6 +1887,11 @@ export async function getAdminP2pStats() {
     totalDisputes,
     activeAds,
     openDisputes,
+    underReviewDisputes,
+    awaitingEvidenceDisputes,
+    escalatedDisputes,
+    resolvedDisputes,
+    activeDisputes: openDisputes + underReviewDisputes + awaitingEvidenceDisputes + escalatedDisputes,
     totalVolumeFiat,
     totalVolumeCrypto,
   };
@@ -1878,8 +1904,8 @@ export async function getAdminP2pOrders(filters?: { status?: string; search?: st
   if (filters?.status && filters.status !== "ALL") {
     where.status = filters.status.toUpperCase();
   }
-  if (filters?.search) {
-    const q = filters.search.toLowerCase();
+  if (filters?.search?.trim()) {
+    const q = filters.search.trim().toLowerCase();
     where.OR = [
       { id: { contains: q } },
       { displayId: { contains: q } },
@@ -1899,19 +1925,36 @@ export async function getAdminP2pOrders(filters?: { status?: string; search?: st
     orderBy: { createdAt: "desc" },
   });
 
-  return [...orders].sort((a: any, b: any) => {
-    const timeA = new Date(a.createdAt).getTime() || 0;
-    const timeB = new Date(b.createdAt).getTime() || 0;
-    return timeB - timeA;
-  });
+  return orders.map((o: any) => ({
+    ...o,
+    orderNumber: o.displayId || o.id?.slice(0, 8),
+    asset: o.ad?.asset || "USDT",
+    fiatCurrency: o.ad?.fiat || "INR",
+  }));
 }
 
-export async function getAdminP2pDisputes(filters?: { status?: string }) {
+export async function getAdminP2pDisputes(filters?: { status?: string; search?: string }) {
   await verifyAdmin();
 
   const where: any = {};
   if (filters?.status && filters.status !== "ALL") {
-    where.status = filters.status.toUpperCase();
+    if (filters.status === "RESOLVED") {
+      where.status = { in: ["RESOLVED_BUYER", "RESOLVED_SELLER"] };
+    } else {
+      where.status = filters.status.toUpperCase();
+    }
+  }
+
+  if (filters?.search?.trim()) {
+    const q = filters.search.trim().toLowerCase();
+    where.OR = [
+      { displayId: { contains: q } },
+      { reason: { contains: q } },
+      { order: { displayId: { contains: q } } },
+      { order: { buyer: { email: { contains: q } } } },
+      { order: { seller: { email: { contains: q } } } },
+      { opener: { email: { contains: q } } },
+    ];
   }
 
   const disputes = await prisma.p2pDispute.findMany({
@@ -1925,39 +1968,360 @@ export async function getAdminP2pDisputes(filters?: { status?: string }) {
         },
       },
       opener: { select: { id: true, uid: true, name: true, email: true } },
+      assignedAdmin: { select: { id: true, uid: true, name: true, email: true } },
     },
     orderBy: { createdAt: "desc" },
   });
 
-  const sortedDisputes = [...disputes].sort((a: any, b: any) => {
-    const timeA = new Date(a.createdAt).getTime() || 0;
-    const timeB = new Date(b.createdAt).getTime() || 0;
-    return timeB - timeA;
-  });
+  return disputes.map((d: any) => {
+    let evidenceList: any[] = [];
+    try {
+      evidenceList = typeof d.evidenceUrls === "string" ? JSON.parse(d.evidenceUrls || "[]") : (d.evidenceUrls || []);
+    } catch {
+      evidenceList = [];
+    }
 
-  return sortedDisputes.map((d: any) => ({
-    ...d,
-    evidenceUrls: typeof d.evidenceUrls === "string" ? JSON.parse(d.evidenceUrls || "[]") : d.evidenceUrls,
-  }));
+    let timeline: any[] = [];
+    try {
+      if (typeof d.adminNotes === "string" && d.adminNotes.trim().startsWith("[")) {
+        timeline = JSON.parse(d.adminNotes);
+      } else if (d.adminNotes) {
+        timeline = [{ id: "legacy_note", actor: "ADMIN", message: d.adminNotes, timestamp: d.updatedAt }];
+      }
+    } catch {
+      timeline = [];
+    }
+
+    return {
+      ...d,
+      disputeNumber: d.displayId || d.id?.slice(0, 8),
+      order: {
+        ...d.order,
+        orderNumber: d.order?.displayId || d.order?.id?.slice(0, 8),
+        asset: d.order?.ad?.asset || "USDT",
+        fiatCurrency: d.order?.ad?.fiat || "INR",
+      },
+      initiator: d.opener,
+      evidenceList,
+      timeline,
+    };
+  });
 }
 
-export async function resolveAdminP2pDispute(
+export async function getAdminP2pDisputeDetails(disputeId: string) {
+  await verifyAdmin();
+
+  const dispute = await prisma.p2pDispute.findUnique({
+    where: { id: disputeId },
+    include: {
+      order: {
+        include: {
+          ad: true,
+          buyer: { select: { id: true, uid: true, name: true, email: true, phone: true, createdAt: true } },
+          seller: { select: { id: true, uid: true, name: true, email: true, phone: true, createdAt: true } },
+          messages: {
+            orderBy: { createdAt: "asc" },
+            include: {
+              sender: { select: { id: true, name: true, email: true, role: true } },
+            },
+          },
+        },
+      },
+      opener: { select: { id: true, uid: true, name: true, email: true } },
+      assignedAdmin: { select: { id: true, uid: true, name: true, email: true } },
+    },
+  });
+
+  if (!dispute) return { success: false, error: "Dispute not found" };
+
+  let evidenceList: any[] = [];
+  try {
+    evidenceList = typeof dispute.evidenceUrls === "string" ? JSON.parse(dispute.evidenceUrls || "[]") : (dispute.evidenceUrls || []);
+  } catch {
+    evidenceList = [];
+  }
+
+  let timeline: any[] = [];
+  try {
+    if (typeof dispute.adminNotes === "string" && dispute.adminNotes.trim().startsWith("[")) {
+      timeline = JSON.parse(dispute.adminNotes);
+    } else if (dispute.adminNotes) {
+      timeline = [{ id: "init_note", actor: "ADMIN", message: dispute.adminNotes, timestamp: dispute.updatedAt }];
+    }
+  } catch {
+    timeline = [];
+  }
+
+  return {
+    success: true,
+    data: {
+      ...dispute,
+      disputeNumber: dispute.displayId || dispute.id?.slice(0, 8),
+      order: {
+        ...dispute.order,
+        orderNumber: dispute.order?.displayId || dispute.order?.id?.slice(0, 8),
+        asset: dispute.order?.ad?.asset || "USDT",
+        fiatCurrency: dispute.order?.ad?.fiat || "INR",
+      },
+      initiator: dispute.opener,
+      evidenceList,
+      timeline,
+      chatMessages: (dispute.order?.messages || []).map((m: any) => ({
+        id: m.id,
+        senderId: m.senderId,
+        senderName: m.sender?.name || m.sender?.email || "User",
+        senderRole: m.senderId === dispute.order?.buyerId ? "BUYER" : m.senderId === dispute.order?.sellerId ? "SELLER" : m.sender?.role || "SYSTEM",
+        content: m.content,
+        type: m.type,
+        createdAt: m.createdAt,
+      })),
+    },
+  };
+}
+
+export async function updateAdminP2pDisputeStatus(
   disputeId: string,
   data: {
-    decision: "BUYER_WINS" | "SELLER_WINS" | "SPLIT" | "DISMISSED";
-    resolutionNotes?: string;
-    releaseEscrowTo?: "BUYER" | "SELLER" | "NONE";
+    status: "OPEN" | "UNDER_REVIEW" | "AWAITING_EVIDENCE" | "ESCALATED";
+    note?: string;
+    requestEvidenceFrom?: "BUYER" | "SELLER" | "BOTH" | "NONE";
+    messageToParties?: string;
   }
 ) {
   const admin = await verifyAdmin();
 
   const dispute = await prisma.p2pDispute.findUnique({
     where: { id: disputeId },
-    include: { order: { include: { ad: true } } },
+    include: {
+      order: {
+        include: {
+          buyer: true,
+          seller: true,
+        },
+      },
+    },
+  });
+
+  if (!dispute) return { success: false, error: "Dispute not found" };
+
+  if (dispute.status === "RESOLVED_BUYER" || dispute.status === "RESOLVED_SELLER" || dispute.status === "CANCELLED") {
+    return { success: false, error: `Cannot change status: Dispute is already finalized as ${dispute.status}` };
+  }
+
+  let timeline: any[] = [];
+  try {
+    if (typeof dispute.adminNotes === "string" && dispute.adminNotes.trim().startsWith("[")) {
+      timeline = JSON.parse(dispute.adminNotes);
+    } else if (dispute.adminNotes) {
+      timeline = [{ id: "init_note", actor: "ADMIN", message: dispute.adminNotes, timestamp: dispute.updatedAt }];
+    }
+  } catch {
+    timeline = [];
+  }
+
+  const newEvent = {
+    id: `ev_${Date.now()}`,
+    type: "STATUS_CHANGED",
+    actor: "ADMIN",
+    adminId: admin.id,
+    adminName: admin.email,
+    adminEmail: admin.email,
+    previousStatus: dispute.status,
+    newStatus: data.status,
+    note: data.note || "",
+    requestEvidenceFrom: data.requestEvidenceFrom || null,
+    timestamp: new Date().toISOString(),
+  };
+  timeline.push(newEvent);
+
+  const updated = await prisma.$transaction(async (tx: DBClient) => {
+    const res = await tx.p2pDispute.update({
+      where: { id: disputeId },
+      data: {
+        status: data.status,
+        adminNotes: JSON.stringify(timeline),
+        assignedAdminId: dispute.assignedAdminId || admin.id,
+      },
+    });
+
+    let chatContent = `[Moderator Update] Dispute status changed to '${data.status.replace(/_/g, " ")}'.`;
+    if (data.requestEvidenceFrom && data.requestEvidenceFrom !== "NONE") {
+      chatContent += ` Additional evidence requested from ${data.requestEvidenceFrom}: "${data.messageToParties || data.note || "Please submit payment proof."}"`;
+    }
+
+    await tx.p2pMessage.create({
+      data: {
+        orderId: dispute.orderId,
+        senderId: admin.id,
+        content: chatContent,
+        type: "SYSTEM",
+      },
+    });
+
+    await tx.auditLog.create({
+      data: {
+        adminId: admin.id,
+        adminEmail: admin.email,
+        action: "UPDATE_DISPUTE_STATUS",
+        targetType: "P2P_DISPUTE",
+        targetId: disputeId,
+        details: `Status set to ${data.status}. Evidence requested from: ${data.requestEvidenceFrom || "None"}. Note: ${data.note || "None"}`,
+      },
+    });
+
+    return res;
+  });
+
+  // Send email if evidence requested
+  if (data.requestEvidenceFrom && data.requestEvidenceFrom !== "NONE") {
+    const targets: Array<{ email: string; name: string; role: "BUYER" | "SELLER" }> = [];
+    if ((data.requestEvidenceFrom === "BUYER" || data.requestEvidenceFrom === "BOTH") && dispute.order?.buyer?.email) {
+      targets.push({ email: dispute.order.buyer.email, name: dispute.order.buyer.name || "Buyer", role: "BUYER" });
+    }
+    if ((data.requestEvidenceFrom === "SELLER" || data.requestEvidenceFrom === "BOTH") && dispute.order?.seller?.email) {
+      targets.push({ email: dispute.order.seller.email, name: dispute.order.seller.name || "Seller", role: "SELLER" });
+    }
+
+    for (const t of targets) {
+      sendDisputeStatusUpdateNotification({
+        email: t.email,
+        name: t.name,
+        role: t.role,
+        disputeNumber: dispute.displayId || dispute.id,
+        orderNumber: dispute.order?.displayId || dispute.orderId,
+        status: data.status,
+        message: data.messageToParties || data.note || "The platform moderator has requested additional payment proof or documentation.",
+        requiresAction: true,
+        actionUrl: `${process.env.APP_URL || "https://ethsltd.com"}/p2p/order/${dispute.orderId}`,
+      }).catch((err) => console.error("Evidence request email failed:", err));
+    }
+  }
+
+  safeRevalidate("/admin/p2p/disputes");
+  safeRevalidate("/admin/p2p");
+  safeRevalidate(`/p2p/order/${dispute.orderId}`);
+
+  return { success: true, data: updated };
+}
+
+export async function assignAdminP2pDispute(disputeId: string, assignedAdminId?: string) {
+  const admin = await verifyAdmin();
+
+  const dispute = await prisma.p2pDispute.findUnique({
+    where: { id: disputeId },
+    include: { assignedAdmin: true },
+  });
+  if (!dispute) return { success: false, error: "Dispute not found" };
+
+  const targetAdminId = assignedAdminId || admin.id;
+
+  let timeline: any[] = [];
+  try {
+    if (typeof dispute.adminNotes === "string" && dispute.adminNotes.trim().startsWith("[")) {
+      timeline = JSON.parse(dispute.adminNotes);
+    }
+  } catch {}
+
+  timeline.push({
+    id: `ev_${Date.now()}`,
+    type: "ASSIGNED",
+    actor: "ADMIN",
+    adminId: admin.id,
+    adminName: admin.email,
+    assignedToId: targetAdminId,
+    timestamp: new Date().toISOString(),
+  });
+
+  const updated = await prisma.p2pDispute.update({
+    where: { id: disputeId },
+    data: {
+      assignedAdminId: targetAdminId,
+      adminNotes: JSON.stringify(timeline),
+    },
+  });
+
+  safeRevalidate("/admin/p2p/disputes");
+  return { success: true, data: updated };
+}
+
+export async function addAdminDisputeNote(disputeId: string, noteText: string) {
+  const admin = await verifyAdmin();
+  if (!noteText?.trim()) return { success: false, error: "Note cannot be empty" };
+
+  const dispute = await prisma.p2pDispute.findUnique({ where: { id: disputeId } });
+  if (!dispute) return { success: false, error: "Dispute not found" };
+
+  let timeline: any[] = [];
+  try {
+    if (typeof dispute.adminNotes === "string" && dispute.adminNotes.trim().startsWith("[")) {
+      timeline = JSON.parse(dispute.adminNotes);
+    } else if (dispute.adminNotes) {
+      timeline = [{ id: "init_note", actor: "ADMIN", message: dispute.adminNotes, timestamp: dispute.updatedAt }];
+    }
+  } catch {}
+
+  timeline.push({
+    id: `ev_${Date.now()}`,
+    type: "ADMIN_NOTE",
+    actor: "ADMIN",
+    adminId: admin.id,
+    adminName: admin.email,
+    note: noteText.trim(),
+    timestamp: new Date().toISOString(),
+  });
+
+  const updated = await prisma.p2pDispute.update({
+    where: { id: disputeId },
+    data: {
+      adminNotes: JSON.stringify(timeline),
+    },
+  });
+
+  safeRevalidate("/admin/p2p/disputes");
+  return { success: true, data: updated };
+}
+
+export async function resolveAdminP2pDispute(
+  disputeId: string,
+  data: {
+    decision: "BUYER_WINS" | "SELLER_WINS" | "DISMISSED";
+    resolutionNotes: string;
+    releaseEscrowTo?: "BUYER" | "SELLER" | "NONE";
+  }
+) {
+  const admin = await verifyAdmin();
+
+  if (!data.resolutionNotes?.trim()) {
+    return { success: false, error: "Resolution rationale notes are strictly required." };
+  }
+
+  const dispute = await prisma.p2pDispute.findUnique({
+    where: { id: disputeId },
+    include: {
+      order: {
+        include: {
+          ad: true,
+          buyer: true,
+          seller: true,
+        },
+      },
+    },
   });
 
   if (!dispute) {
     return { success: false, error: "Dispute not found" };
+  }
+
+  // Idempotency guard: prevent duplicate resolution and double spending
+  if (
+    dispute.status === "RESOLVED_BUYER" ||
+    dispute.status === "RESOLVED_SELLER" ||
+    dispute.status === "CANCELLED"
+  ) {
+    return {
+      success: false,
+      error: `Dispute is already closed with status: ${dispute.status}. Resolution cannot be reapplied.`,
+    };
   }
 
   const order = dispute.order;
@@ -1965,13 +2329,47 @@ export async function resolveAdminP2pDispute(
     return { success: false, error: "Order associated with dispute not found" };
   }
 
-  const asset = order.ad.asset;
+  if (order.status !== "DISPUTED") {
+    return {
+      success: false,
+      error: `Associated order is not in DISPUTED state (currently ${order.status}). Escrow actions blocked.`,
+    };
+  }
+
+  const asset = order.ad?.asset || "USDT";
   const cryptoNum = parseFloat(order.cryptoAmount) || 0;
 
+  let timeline: any[] = [];
+  try {
+    if (typeof dispute.adminNotes === "string" && dispute.adminNotes.trim().startsWith("[")) {
+      timeline = JSON.parse(dispute.adminNotes);
+    } else if (dispute.adminNotes) {
+      timeline = [{ id: "init_note", actor: "ADMIN", message: dispute.adminNotes, timestamp: dispute.updatedAt }];
+    }
+  } catch {}
+
+  timeline.push({
+    id: `ev_${Date.now()}`,
+    type: "RESOLVED",
+    actor: "ADMIN",
+    adminId: admin.id,
+    adminName: admin.email,
+    decision: data.decision,
+    notes: data.resolutionNotes.trim(),
+    timestamp: new Date().toISOString(),
+  });
+
+  const finalDisputeStatus =
+    data.decision === "BUYER_WINS"
+      ? "RESOLVED_BUYER"
+      : data.decision === "SELLER_WINS"
+      ? "RESOLVED_SELLER"
+      : "CANCELLED";
+
   const result = await prisma.$transaction(async (tx: DBClient) => {
-    // 1. Release escrow according to decision
-    if (data.releaseEscrowTo === "BUYER" || data.decision === "BUYER_WINS") {
-      // Deduct seller escrow (check P2P wallet first, then Currency wallet)
+    // 1. Financial Settlement
+    if (data.decision === "BUYER_WINS" || data.releaseEscrowTo === "BUYER") {
+      // Deduct seller escrow safely
       let sellerWallet = await tx.wallet.findFirst({
         where: { userId: order.sellerId, asset, type: "P2P", escrowBalance: { gte: cryptoNum } },
       });
@@ -2011,7 +2409,7 @@ export async function resolveAdminP2pDispute(
           asset,
           amount: cryptoNum,
           status: "Passed",
-          description: `Dispute Resolution: Received ${cryptoNum} ${asset} for P2P Order ${order.displayId || order.id}`,
+          description: `Dispute Ruling (Buyer Wins): Credited ${cryptoNum} ${asset} for P2P Order ${order.displayId || order.id}`,
         },
       });
 
@@ -2022,7 +2420,7 @@ export async function resolveAdminP2pDispute(
           asset,
           amount: -cryptoNum,
           status: "Passed",
-          description: `Dispute Resolution: Deducted ${cryptoNum} ${asset} for P2P Order ${order.displayId || order.id}`,
+          description: `Dispute Ruling (Buyer Wins): Escrow Released ${cryptoNum} ${asset} for P2P Order ${order.displayId || order.id}`,
         },
       });
 
@@ -2030,8 +2428,8 @@ export async function resolveAdminP2pDispute(
         where: { id: order.id },
         data: { status: "COMPLETED" },
       });
-    } else if (data.releaseEscrowTo === "SELLER" || data.decision === "SELLER_WINS") {
-      // Return escrow to seller balance (check P2P wallet first, then Currency wallet)
+    } else if (data.decision === "SELLER_WINS" || data.releaseEscrowTo === "SELLER") {
+      // Return escrow to seller balance
       let sellerWallet = await tx.wallet.findFirst({
         where: { userId: order.sellerId, asset, type: "P2P", escrowBalance: { gte: cryptoNum } },
       });
@@ -2051,25 +2449,35 @@ export async function resolveAdminP2pDispute(
         });
       }
 
+      await tx.transaction.create({
+        data: {
+          userId: order.sellerId,
+          type: "P2P",
+          asset,
+          amount: cryptoNum,
+          status: "Passed",
+          description: `Dispute Ruling (Seller Wins): Escrow returned ${cryptoNum} ${asset} for P2P Order ${order.displayId || order.id}`,
+        },
+      });
+
+      await tx.p2pOrder.update({
+        where: { id: order.id },
+        data: { status: "CANCELLED" },
+      });
+    } else {
+      // DISMISSED
       await tx.p2pOrder.update({
         where: { id: order.id },
         data: { status: "CANCELLED" },
       });
     }
 
-    // 2. Update dispute status
-    const status =
-      data.decision === "BUYER_WINS"
-        ? "RESOLVED_BUYER"
-        : data.decision === "SELLER_WINS"
-        ? "RESOLVED_SELLER"
-        : "CANCELLED";
-
+    // 2. Update dispute record
     const updatedDispute = await tx.p2pDispute.update({
       where: { id: disputeId },
       data: {
-        status,
-        adminNotes: data.resolutionNotes || `Decision: ${data.decision}`,
+        status: finalDisputeStatus,
+        adminNotes: JSON.stringify(timeline),
         assignedAdminId: admin.id,
       },
     });
@@ -2079,7 +2487,7 @@ export async function resolveAdminP2pDispute(
       data: {
         orderId: order.id,
         senderId: admin.id,
-        content: `Admin Dispute Resolved: Decision '${data.decision}'. Notes: ${data.resolutionNotes || "None"}`,
+        content: `Official Dispute Resolution: Ruling '${data.decision.replace(/_/g, " ")}'. Moderator Rationale: ${data.resolutionNotes}`,
         type: "SYSTEM",
       },
     });
@@ -2092,18 +2500,143 @@ export async function resolveAdminP2pDispute(
         action: "RESOLVE_P2P_DISPUTE",
         targetType: "P2P_DISPUTE",
         targetId: disputeId,
-        details: `Resolved dispute ${dispute.displayId || dispute.id} with decision ${data.decision}. Notes: ${data.resolutionNotes || "None"}`,
+        details: `Resolved dispute ${dispute.displayId || dispute.id} with ruling ${data.decision}. Notes: ${data.resolutionNotes}`,
       },
     });
 
     return updatedDispute;
   });
 
+  // Send resolution emails to both buyer and seller
+  if (order.buyer?.email) {
+    sendDisputeResolvedNotification({
+      email: order.buyer.email,
+      name: order.buyer.name || "Buyer",
+      role: "BUYER",
+      disputeNumber: dispute.displayId || dispute.id,
+      orderNumber: order.displayId || order.id,
+      decision: data.decision,
+      resolutionNotes: data.resolutionNotes,
+      cryptoAmount: cryptoNum,
+      asset,
+      recipientOutcome:
+        data.decision === "BUYER_WINS"
+          ? "ESCROW_RECEIVED"
+          : data.decision === "DISMISSED"
+          ? "DISMISSED"
+          : "ESCROW_LOST",
+    }).catch((err) => console.error("Buyer resolution email failed:", err));
+  }
+
+  if (order.seller?.email) {
+    sendDisputeResolvedNotification({
+      email: order.seller.email,
+      name: order.seller.name || "Seller",
+      role: "SELLER",
+      disputeNumber: dispute.displayId || dispute.id,
+      orderNumber: order.displayId || order.id,
+      decision: data.decision,
+      resolutionNotes: data.resolutionNotes,
+      cryptoAmount: cryptoNum,
+      asset,
+      recipientOutcome:
+        data.decision === "SELLER_WINS"
+          ? "ESCROW_RETURNED"
+          : data.decision === "DISMISSED"
+          ? "DISMISSED"
+          : "ESCROW_LOST",
+    }).catch((err) => console.error("Seller resolution email failed:", err));
+  }
+
   safeRevalidate("/admin/p2p/disputes");
   safeRevalidate("/admin/p2p/orders");
+  safeRevalidate("/admin/p2p");
+  safeRevalidate("/admin");
   safeRevalidate(`/p2p/order/${order.id}`);
 
   return { success: true, data: result };
+}
+
+export async function reopenAdminP2pDispute(disputeId: string, reason: string) {
+  const admin = await verifyAdmin();
+
+  if (!reason?.trim()) {
+    return { success: false, error: "Reason for reopening dispute is required." };
+  }
+
+  const dispute = await prisma.p2pDispute.findUnique({
+    where: { id: disputeId },
+    include: { order: true },
+  });
+
+  if (!dispute) return { success: false, error: "Dispute not found" };
+
+  if (dispute.status !== "RESOLVED_BUYER" && dispute.status !== "RESOLVED_SELLER" && dispute.status !== "CANCELLED") {
+    return { success: false, error: "Only finalized or dismissed disputes can be reopened." };
+  }
+
+  let timeline: any[] = [];
+  try {
+    if (typeof dispute.adminNotes === "string" && dispute.adminNotes.trim().startsWith("[")) {
+      timeline = JSON.parse(dispute.adminNotes);
+    }
+  } catch {}
+
+  timeline.push({
+    id: `ev_${Date.now()}`,
+    type: "REOPENED",
+    actor: "ADMIN",
+    adminId: admin.id,
+    adminName: admin.email,
+    reason: reason.trim(),
+    previousStatus: dispute.status,
+    timestamp: new Date().toISOString(),
+  });
+
+  const updated = await prisma.$transaction(async (tx: DBClient) => {
+    const res = await tx.p2pDispute.update({
+      where: { id: disputeId },
+      data: {
+        status: "UNDER_REVIEW",
+        adminNotes: JSON.stringify(timeline),
+        assignedAdminId: admin.id,
+      },
+    });
+
+    await tx.p2pOrder.update({
+      where: { id: dispute.orderId },
+      data: { status: "DISPUTED" },
+    });
+
+    await tx.p2pMessage.create({
+      data: {
+        orderId: dispute.orderId,
+        senderId: admin.id,
+        content: `Dispute Case #${dispute.displayId || dispute.id} has been reopened by Administrator ${admin.email}. Reason: "${reason.trim()}"`,
+        type: "SYSTEM",
+      },
+    });
+
+    await tx.auditLog.create({
+      data: {
+        adminId: admin.id,
+        adminEmail: admin.email,
+        action: "REOPEN_P2P_DISPUTE",
+        targetType: "P2P_DISPUTE",
+        targetId: disputeId,
+        details: `Reopened dispute. Reason: ${reason.trim()}`,
+      },
+    });
+
+    return res;
+  });
+
+  safeRevalidate("/admin/p2p/disputes");
+  safeRevalidate("/admin/p2p");
+  safeRevalidate("/admin");
+  safeRevalidate(`/p2p/order/${dispute.orderId}`);
+
+  return { success: true, data: updated };
 }
 
 // -------------------------------------------------------------

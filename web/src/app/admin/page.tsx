@@ -7,7 +7,8 @@ import {
   AlertCircle,
   ArrowRight,
   ShieldCheck,
-  CreditCard
+  CreditCard,
+  Scale
 } from "lucide-react";
 import Link from "next/link";
 import { getAdminStats } from "@/actions/admin";
@@ -40,8 +41,21 @@ export default async function AdminDashboardPage() {
       </div>
 
       {/* Pending Action Alerts */}
-      {(stats.pendingKycCount > 0 || stats.pendingDepositsCount > 0 || stats.pendingWithdrawalsCount > 0) && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+      {(stats.pendingKycCount > 0 || stats.pendingDepositsCount > 0 || stats.pendingWithdrawalsCount > 0 || ((stats as any).pendingDisputesCount || 0) > 0) && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {((stats as any).pendingDisputesCount || 0) > 0 && (
+            <Link
+              href="/admin/p2p/disputes"
+              className="flex items-center justify-between p-3.5 bg-amber-500/15 border border-amber-500/40 rounded-xl text-xs text-amber-300 hover:bg-amber-500/25 transition-all min-w-0 shadow-lg shadow-amber-950/20"
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <Scale className="w-4 h-4 text-amber-400 shrink-0 animate-pulse" />
+                <span className="truncate"><strong>{(stats as any).pendingDisputesCount}</strong> Disputes requiring review</span>
+              </div>
+              <ArrowRight className="w-3.5 h-3.5 shrink-0 ml-2" />
+            </Link>
+          )}
+
           {stats.pendingKycCount > 0 && (
             <Link
               href="/admin/kyc"

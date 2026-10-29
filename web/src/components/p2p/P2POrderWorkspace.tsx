@@ -8,6 +8,7 @@ import {
   releaseP2pOrder,
   cancelP2pOrder,
   disputeP2pOrder,
+  submitP2pDisputeEvidence,
 } from "@/actions/p2p";
 import { useCurrencies } from "@/hooks/use-currencies";
 import { P2PChat } from "@/components/p2p/P2PChat";
@@ -25,6 +26,11 @@ import {
   QrCode,
   Wallet,
   CopyCheck,
+  UploadCloud,
+  FolderOpen,
+  FileCheck2,
+  Eye,
+  Scale,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -56,6 +62,13 @@ export function P2POrderWorkspace({ orderId }: P2POrderWorkspaceProps) {
   const [showDisputeModal, setShowDisputeModal] = useState(false);
   const [disputeReason, setDisputeReason] = useState("");
   const [disputeDescription, setDisputeDescription] = useState("");
+  const [disputeFile, setDisputeFile] = useState<File | null>(null);
+
+  // Additional evidence submission state
+  const [showEvidenceModal, setShowEvidenceModal] = useState(false);
+  const [evidenceFile, setEvidenceFile] = useState<File | null>(null);
+  const [evidenceDescription, setEvidenceDescription] = useState("");
+  const [isUploadingEvidence, setIsUploadingEvidence] = useState(false);
 
   const fetchOrder = async (isPolling = false) => {
     try {
@@ -239,13 +252,37 @@ export function P2POrderWorkspace({ orderId }: P2POrderWorkspaceProps) {
     }
     setIsSubmitting(true);
     try {
+      let uploadedEvidenceList: any[] = [];
+      if (disputeFile) {
+        try {
+          const formData = new FormData();
+          formData.append("file", disputeFile);
+          formData.append("orderId", order.id);
+          const uploadRes = await fetch("/api/p2p/evidence/upload", {
+            method: "POST",
+            body: formData,
+          });
+          const uploadData = (await uploadRes.json()) as any;
+          if (uploadData.success && uploadData.url) {
+            uploadedEvidenceList.push({
+              url: uploadData.url,
+              name: disputeFile.name,
+            });
+          }
+        } catch (uploadErr) {
+          console.warn("Evidence upload failed:", uploadErr);
+        }
+      }
+
       const res = await disputeP2pOrder(order.id, {
         reason: disputeReason,
         description: disputeDescription,
+        evidenceUrls: uploadedEvidenceList,
       });
       if (res.success) {
         toast.success("Dispute raised. An admin moderator will investigate.");
         setShowDisputeModal(false);
+        setDisputeFile(null);
         fetchOrder();
       } else {
         if (res.error?.includes("Unauthorized") || res.error?.includes("Log in")) {
@@ -258,6 +295,49 @@ export function P2POrderWorkspace({ orderId }: P2POrderWorkspaceProps) {
       toast.error(e.message || "Failed to raise dispute");
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleEvidenceSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!evidenceFile) {
+      toast.error("Please select a file to upload");
+      return;
+    }
+
+    setIsUploadingEvidence(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", evidenceFile);
+      formData.append("orderId", order.id);
+      const uploadRes = await fetch("/api/p2p/evidence/upload", {
+        method: "POST",
+        body: formData,
+      });
+      const uploadData = (await uploadRes.json()) as any;
+      if (!uploadData.success || !uploadData.url) {
+        throw new Error(uploadData.error || "File upload failed");
+      }
+
+      const submitRes = await submitP2pDisputeEvidence(order.id, {
+        fileUrl: uploadData.url,
+        fileName: evidenceFile.name,
+        description: evidenceDescription.trim() || undefined,
+      });
+
+      if (submitRes.success) {
+        toast.success("Evidence submitted successfully. Moderator notified.");
+        setShowEvidenceModal(false);
+        setEvidenceFile(null);
+        setEvidenceDescription("");
+        fetchOrder();
+      } else {
+        toast.error(submitRes.error || "Failed to submit evidence");
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Failed to submit evidence");
+    } finally {
+      setIsUploadingEvidence(false);
     }
   };
 
@@ -805,12 +885,88 @@ export function P2POrderWorkspace({ orderId }: P2POrderWorkspaceProps) {
 
           {/* Case 6: Disputed */}
           {order.status === "DISPUTED" && (
-            <div className="bg-amber-500/10 border border-amber-500/20 p-5 rounded-xl text-center space-y-2">
-              <AlertCircle className="w-8 h-8 text-amber-400 mx-auto" />
-              <h4 className="font-bold text-white text-base">Order is Under Admin Dispute</h4>
-              <p className="text-xs text-gray-300 max-w-md mx-auto">
-                A moderator is inspecting the transaction and chat logs to resolve escrow.
-              </p>
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 sm:p-6 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 shrink-0">
+                    <Scale className="w-6 h-6 animate-pulse" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h4 className="font-bold text-white text-sm sm:text-base">
+                        Dispute Case #{order.dispute?.disputeNumber || "ACTIVE"}
+                      </h4>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                        {order.dispute?.status?.replace(/_/g, " ") || "UNDER INVESTIGATION"}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      An authorized compliance moderator is reviewing evidence and chat logs to adjudicate escrow disposition.
+                    </p>
+                  </div>
+                </div>
+
+                <Button
+                  onClick={() => setShowEvidenceModal(true)}
+                  className="bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs h-9 px-4 shrink-0 shadow-md cursor-pointer flex items-center gap-1.5 self-start sm:self-auto"
+                >
+                  <UploadCloud className="w-4 h-4" />
+                  <span>Submit Proof / Evidence</span>
+                </Button>
+              </div>
+
+              {/* Dispute Details Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                <div className="bg-[#121212] p-3 rounded-xl border border-white/5 space-y-1">
+                  <span className="text-gray-400 text-[10px] block font-semibold uppercase">
+                    Dispute Reason & Claim
+                  </span>
+                  <p className="text-white font-medium break-words">
+                    {order.dispute?.reason || "Claimant requested administrative intervention."}
+                  </p>
+                </div>
+
+                <div className="bg-[#121212] p-3 rounded-xl border border-white/5 space-y-1">
+                  <span className="text-gray-400 text-[10px] block font-semibold uppercase">
+                    Escrow Protection Status
+                  </span>
+                  <p className="text-emerald-400 font-mono font-bold">
+                    {order.cryptoAmount} {order.asset} LOCKED IN ESCROW
+                  </p>
+                  <span className="text-[10px] text-gray-500 block">
+                    Funds cannot be released or withdrawn by either party until adjudicated.
+                  </span>
+                </div>
+              </div>
+
+              {/* Evidence Gallery if present */}
+              {order.dispute?.evidenceUrls && order.dispute.evidenceUrls.length > 0 && (
+                <div className="bg-[#121212] p-3.5 rounded-xl border border-white/5 space-y-2">
+                  <span className="text-xs font-bold text-gray-300 flex items-center gap-1.5 uppercase tracking-wider">
+                    <FolderOpen className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Submitted Evidence Documents ({order.dispute.evidenceUrls.length})</span>
+                  </span>
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    {order.dispute.evidenceUrls.map((ev: any, idx: number) => (
+                      <a
+                        key={ev.id || idx}
+                        href={ev.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-gray-300 hover:text-white transition-colors"
+                      >
+                        <Eye className="w-3.5 h-3.5 text-amber-400" />
+                        <span className="truncate max-w-[160px]">{ev.name || `Document #${idx + 1}`}</span>
+                        {ev.uploaderRole && (
+                          <span className="text-[9px] px-1.5 py-0.2 rounded bg-white/10 text-gray-400">
+                            {ev.uploaderRole}
+                          </span>
+                        )}
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -865,6 +1021,15 @@ export function P2POrderWorkspace({ orderId }: P2POrderWorkspaceProps) {
                 required
               />
             </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-gray-300">Attach Payment Proof / Screenshot (Optional)</label>
+              <Input
+                type="file"
+                accept="image/jpeg,image/png,image/webp,application/pdf"
+                onChange={(e) => setDisputeFile(e.target.files?.[0] || null)}
+                className="bg-[#121212] border-white/10 text-xs file:bg-white/10 file:text-white file:border-0 file:rounded-md file:px-2 file:py-1 file:mr-2 cursor-pointer"
+              />
+            </div>
             <div className="flex flex-col sm:flex-row justify-end gap-2 pt-2">
               <Button
                 type="button"
@@ -886,6 +1051,67 @@ export function P2POrderWorkspace({ orderId }: P2POrderWorkspaceProps) {
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* Submit Additional Evidence Modal */}
+      {showEvidenceModal && (
+        <Dialog open={showEvidenceModal} onOpenChange={setShowEvidenceModal}>
+          <DialogContent className="w-[92vw] sm:max-w-md bg-[#161822] border-white/10 text-white p-4 sm:p-6">
+            <DialogHeader>
+              <DialogTitle className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+                <UploadCloud className="w-5 h-5 text-amber-400 shrink-0" />
+                <span>Submit Dispute Evidence</span>
+              </DialogTitle>
+              <DialogDescription className="text-gray-400 text-xs">
+                Upload banking transaction receipts, screenshots, or statements to support your claim.
+              </DialogDescription>
+            </DialogHeader>
+
+            <form onSubmit={handleEvidenceSubmit} className="space-y-4 py-2 text-xs">
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-gray-300">Evidence Document / Image</label>
+                <Input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,application/pdf"
+                  onChange={(e) => setEvidenceFile(e.target.files?.[0] || null)}
+                  className="bg-[#121212] border-white/10 text-xs file:bg-white/10 file:text-white file:border-0 file:rounded-md file:px-2 file:py-1 file:mr-2 cursor-pointer"
+                  required
+                />
+                <span className="text-[10px] text-gray-500">Supported: JPG, PNG, WEBP, PDF (Max 5MB)</span>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-gray-300">Note / Description (Optional)</label>
+                <textarea
+                  rows={2}
+                  value={evidenceDescription}
+                  onChange={(e) => setEvidenceDescription(e.target.value)}
+                  placeholder="e.g. UTR / Reference ID 82910472 showing payment completed..."
+                  className="w-full rounded-lg border border-white/10 bg-[#121212] p-2.5 text-xs text-white focus:outline-none focus:border-amber-400"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowEvidenceModal(false)}
+                  className="border-white/10"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={isUploadingEvidence || !evidenceFile}
+                  className="bg-amber-500 hover:bg-amber-400 text-black font-bold"
+                >
+                  {isUploadingEvidence ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null}
+                  Upload to Case
+                </Button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }

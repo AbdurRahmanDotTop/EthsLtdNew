@@ -55,7 +55,7 @@ export default async function AdminP2PPage() {
             className="flex items-center justify-center gap-1.5 px-3 sm:px-4 py-2.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400 hover:bg-amber-500/25 text-xs font-bold transition-colors text-center shadow-sm"
           >
             <AlertTriangle className="w-4 h-4 shrink-0" />
-            <span className="truncate">Open Disputes ({stats.openDisputes || 0})</span>
+            <span className="truncate">Active Disputes ({(stats as any).activeDisputes ?? stats.openDisputes ?? 0})</span>
           </Link>
           <Link
             href="/admin/p2p/orders"
@@ -120,8 +120,8 @@ export default async function AdminP2PPage() {
             {openDisputes.slice(0, 3).map((dsp: any) => (
               <div key={dsp.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
                 <div className="min-w-0">
-                  <span className="font-bold text-white block">#{dsp.disputeNumber} • Order #{dsp.order?.orderNumber}</span>
-                  <span className="text-gray-400 mt-0.5 block line-clamp-2">{dsp.reason} - {dsp.description}</span>
+                  <span className="font-bold text-white block">#{dsp.disputeNumber || dsp.displayId} • Order #{dsp.order?.orderNumber || dsp.order?.displayId}</span>
+                  <span className="text-gray-400 mt-0.5 block line-clamp-2">{dsp.reason}</span>
                 </div>
                 <Link
                   href="/admin/p2p/disputes"

@@ -22,6 +22,7 @@ import {
   Coins,
   Mail,
   ArrowLeftRight,
+  Scale,
   Layers,
   Banknote,
   Radio,
@@ -51,6 +52,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const navItems = [
     { name: "Overview", href: "/admin", icon: LayoutDashboard },
     { name: "P2P Marketplace", href: "/admin/p2p", icon: ArrowLeftRight },
+    { name: "P2P Disputes", href: "/admin/p2p/disputes", icon: Scale },
     { name: "P2P Channel Types", href: "/admin/p2p/channels", icon: Layers },
     { name: "P2P Payment Methods", href: "/admin/p2p/payment-methods", icon: CreditCard },
     { name: "Crypto Assets", href: "/admin/assets/crypto", icon: Coins },
